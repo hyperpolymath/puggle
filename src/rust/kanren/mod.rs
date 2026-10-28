@@ -224,7 +224,7 @@ impl Stream {
     /// so a logically infinite relation cannot hang its caller accidentally.
     #[must_use]
     pub fn take(self, limit: usize) -> Vec<State> {
-        let mut answers = Vec::with_capacity(limit);
+        let mut answers = Vec::new();
         let mut stream = self;
         while answers.len() < limit {
             let Some((state, tail)) = stream.step() else {
