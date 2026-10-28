@@ -78,7 +78,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
 }
 
 async fn serve() -> Result<(), Box<dyn Error>> {
-    let address = env::var("PUGGLE_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_owned());
+    let address = env::var("PUGGLE_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
     let address: SocketAddr = address.parse()?;
     let agents = (0..3)
         .map(|style| {
