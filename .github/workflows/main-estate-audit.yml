@@ -1,0 +1,68 @@
+# This workflow is managed by gh actions-lock.
+# SPDX-License-Identifier: MPL-2.0
+name: Central Estate CI/CD Audit
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+# Executes the enforcing gates from hyperpolymath/cicd-suite pinned at a full
+# 40-hex commit SHA without a cross-repository workflow_call (avoiding the
+# GitHub runner 0-job rejection on onboarded cross-repo workflow_call callers).
+jobs:
+  estate-audit:
+    name: Central Estate CI/CD Audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout pinned cicd-suite gates
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: hyperpolymath/cicd-suite
+          ref: bf7dd95cf49733019343ff485c2f45c6b261839c
+          path: .cicd-suite-tmp
+          persist-credentials: false
+
+      - name: Run enforcing cicd-suite governance, hygiene, and language gates
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/cicd-suite"
+          mv .cicd-suite-tmp "$RUNNER_TEMP/cicd-suite"
+          SUITE="$RUNNER_TEMP/cicd-suite/actions"
+
+          for gate in affirmation-check referencing-check code-hygiene-check secrets-check boj-cartridge-check; do
+            echo "=== cicd-suite: $gate ==="
+            bash "$SUITE/$gate/check.sh" .
+          done
+
+          echo "=== cicd-suite: spdx-license-check ==="
+          test -f LICENSE.txt || test -f LICENSE || test -f LICENSE.md || test -f LICENSE.adoc
+
+          echo "=== cicd-suite: idris2-abi & zig-unified-api-adapter ==="
+          if find . -name '*.zig' -not -path './.git/*' | grep -q .; then
+            if git grep -E 'std\.fs|std\.io' -- '*.zig'; then
+              echo "::error::Zig FFI modules contain prohibited side-effects (std.fs/std.io)"
+              exit 1
+            fi
+          fi
+          echo "Central Estate CI/CD Audit passed."

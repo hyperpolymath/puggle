@@ -1,0 +1,273 @@
+# This workflow is managed by gh actions-lock.
+# SPDX-License-Identifier: MPL-2.0
+# SPDX-FileCopyrightText: 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
+#
+# fork-governance.yml — PR-time entry point for DEED syntax, K9-DEED L0–L2
+# conformance, the gitbot-fleet report-backs (producer for the Hypatia verdict
+# grid; standards 3-practice/fork-governance/ADOPTION.adoc §8), and unified
+# summary reporting, pinned to
+# metadatastician/standards@8e48b1caade08a552646adeab66558ac43b4360d.
+name: Fork governance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deed:
+    name: DEED syntax
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout canonical DEED validator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: metadatastician/standards
+          ref: 8e48b1caade08a552646adeab66558ac43b4360d
+          path: .standards-deed
+          sparse-checkout: 1-formats/deed
+          sparse-checkout-cone-mode: true
+          persist-credentials: false
+
+      - name: Setup Bun runtime
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.12'
+
+      - name: Validate DEED manifests and block retired .a2ml files
+        run: |
+          set -euo pipefail
+          STANDARDS_ABS="$PWD/.standards-deed"
+          rm -rf "$RUNNER_TEMP/standards-deed"
+          mv "$STANDARDS_ABS" "$RUNNER_TEMP/standards-deed"
+          STANDARDS_DIR="$RUNNER_TEMP/standards-deed" bash .github/hooks/validate-deed.sh
+
+  k9:
+    name: K9-DEED conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      NICKEL_VERSION: '1.18.0'
+      NICKEL_SHA256: '9cba4dd65ae9915ec61f73033aafcff307a377665a83fd8f530df086763318cb'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout canonical K9 validator and contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: metadatastician/standards
+          ref: 8e48b1caade08a552646adeab66558ac43b4360d
+          path: .standards-k9
+          sparse-checkout: 1-formats/k9
+          sparse-checkout-cone-mode: true
+          persist-credentials: false
+
+      - name: Install sha256-verified Nickel CLI
+        run: |
+          set -euo pipefail
+          URL="https://github.com/tweag/nickel/releases/download/${NICKEL_VERSION}/nickel-x86_64-linux"
+          curl -sSfL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 -o "$RUNNER_TEMP/nickel" "$URL"
+          echo "${NICKEL_SHA256}  ${RUNNER_TEMP}/nickel" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/nickel"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Validate K9 contracts (L0–L2)
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/standards-k9"
+          mv "$PWD/.standards-k9" "$RUNNER_TEMP/standards-k9"
+          STANDARDS_DIR="$RUNNER_TEMP/standards-k9" bash .github/hooks/validate-k9.sh
+
+  # Fleet report-backs: the evidence behind each gitbot-fleet row of the Hypatia
+  # verdict grid (.gitbot-fleet/enrolment.json says which members apply). Inline
+  # rather than `uses:`, because a repository instantiated from this template may
+  # live under an owner whose Actions policy refuses a reusable workflow from
+  # hyperpolymath at plan time (zero jobs, no error line). Checking out another
+  # repository is plain git. The build and run logic lives in the two gitbot-fleet
+  # scripts; standards 3-practice/fork-governance/ADOPTION.adoc §8 is the guide.
+  #
+  # The artifact name is what hypatia-scan-reusable.yml downloads by default
+  # (input `report-backs-artifact`). This template's Hypatia lane is the
+  # self-contained hypatia-scan.yml, which renders no grid; until a repository
+  # adopts the standards reusable the rows are visible in the verdict job's
+  # summary below, and the artifact is ready for the lane the day it is adopted.
+  fleet:
+    name: Fleet report-backs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      # hyperpolymath/gitbot-fleet commit whose driver and adapters run.
+      FLEET_REF: e85b71bf139a61f956c7e0717a2912cd6e347cc5
+      # panic-attack commit for panicbot; equal to the standards Hypatia lane's pin.
+      PANIC_ATTACK_SHA: b689a74d2762a1c19839ae3fbd59b7fe5ef920ea
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout gitbot-fleet at the pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: hyperpolymath/gitbot-fleet
+          ref: ${{ env.FLEET_REF }}
+          path: .fleet-src
+          persist-credentials: false
+
+      # The fleet checkout must not sit inside the tree being reported on: walk-
+      # based adapters would scan the fleet's own source and attribute its findings
+      # to this repository. actions/checkout only writes under the workspace, so
+      # the checkout is moved out to RUNNER_TEMP first; the lockfile hash for the
+      # cache key is taken before the move.
+      - name: Move the fleet checkout out of the scanned tree
+        id: fleet
+        run: |
+          set -euo pipefail
+          lockhash=$(cat .fleet-src/bots/*/Cargo.lock .fleet-src/shared-context/Cargo.lock 2>/dev/null | sha256sum | cut -c1-16)
+          mv .fleet-src "$RUNNER_TEMP/fleet-src"
+          echo "dir=$RUNNER_TEMP/fleet-src" >> "$GITHUB_OUTPUT"
+          echo "lockhash=$lockhash" >> "$GITHUB_OUTPUT"
+
+      - name: Plan which adapters to build
+        id: plan
+        run: |
+          set -euo pipefail
+          plan=$(bash "$RUNNER_TEMP/fleet-src/scripts/fleet-report-back.sh" --plan --enrolment .gitbot-fleet/enrolment.json)
+          echo "plan:"; printf '%s\n' "$plan" | sed 's/^/  /'
+          crates=$(printf '%s\n' "$plan" | awk -F'\t' '$2 != "" {print $2}' | sort -u | tr '\n' ' ')
+          echo "crates=${crates% }" >> "$GITHUB_OUTPUT"
+          if printf '%s\n' "$plan" | awk -F'\t' '$1 == "panicbot" {f=1} END {exit !f}'; then echo panicbot=true; else echo panicbot=false; fi >> "$GITHUB_OUTPUT"
+          { echo "workspaces<<WS"; for c in $crates; do echo "$RUNNER_TEMP/fleet-src/bots/$c -> target"; done; echo "$RUNNER_TEMP/fleet-src/shared-context -> target"; echo WS; } >> "$GITHUB_OUTPUT"
+          if [ -n "${crates% }" ]; then echo build=true; else echo build=false; fi >> "$GITHUB_OUTPUT"
+
+      # Rust comes with the GitHub-hosted runner image; the cache is actions/cache
+      # keyed on the fleet commit's lockfiles. Only GitHub-owned, SHA-pinned
+      # actions appear in this job, as in gitbot-fleet's reusable.
+      - name: Cache adapter builds
+        if: steps.plan.outputs.build == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ${{ runner.temp }}/fleet-src/bots/*/target
+          key: fleet-report-back-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.fleet.outputs.lockhash }}-${{ steps.plan.outputs.crates }}
+          restore-keys: |
+            fleet-report-back-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.fleet.outputs.lockhash }}-
+            fleet-report-back-v3-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Report the Rust toolchain in use
+        if: steps.plan.outputs.build == 'true' || steps.plan.outputs.panicbot == 'true'
+        run: |
+          set -euo pipefail
+          command -v cargo >/dev/null || { echo "::error::cargo is not on this runner; the adapters cannot be built"; exit 1; }
+          cargo --version; rustc --version
+
+      - name: Restore panic-attack build cache
+        if: steps.plan.outputs.panicbot == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.panic-attack
+          key: panic-attack-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.PANIC_ATTACK_SHA }}
+
+      - name: Build the enrolled adapters
+        if: steps.plan.outputs.build == 'true' || steps.plan.outputs.panicbot == 'true'
+        env:
+          CRATES: ${{ steps.plan.outputs.crates }}
+          PANICBOT: ${{ steps.plan.outputs.panicbot }}
+        run: |
+          set -euo pipefail
+          args=(--fleet "$RUNNER_TEMP/fleet-src" --bin-dir "$RUNNER_TEMP/fleet-bin" --crates "$CRATES")
+          [ "$PANICBOT" = true ] && args+=(--panic-attack "$PANIC_ATTACK_SHA")
+          bash "$RUNNER_TEMP/fleet-src/scripts/fleet-report-back-build.sh" "${args[@]}"
+
+      - name: Run the enrolled adapters and write the envelopes
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fleet-bin" "$RUNNER_TEMP/report-backs"
+          bash "$RUNNER_TEMP/fleet-src/scripts/fleet-report-back.sh" --repo . --out "$RUNNER_TEMP/report-backs" \
+            --bin-dir "$RUNNER_TEMP/fleet-bin" --enrolment .gitbot-fleet/enrolment.json \
+            --fleet-ref "$FLEET_REF" --summary "$GITHUB_STEP_SUMMARY"
+          ls "$RUNNER_TEMP/report-backs"/*.json >/dev/null 2>&1 \
+            || echo "No member is enrolled in .gitbot-fleet/enrolment.json." > "$RUNNER_TEMP/report-backs/NONE-ENROLLED.txt"
+
+      - name: Upload the report-backs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fleet-report-backs
+          path: ${{ runner.temp }}/report-backs
+          if-no-files-found: error
+          retention-days: 90
+
+  verdict:
+    name: Fork governance verdict
+    needs: [deed, k9, fleet]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      DEED_RESULT: ${{ needs.deed.result }}
+      K9_RESULT: ${{ needs.k9.result }}
+      FLEET_RESULT: ${{ needs.fleet.result }}
+    steps:
+      - name: Download the fleet report-backs
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fleet-report-backs
+          path: report-backs
+
+      - name: Render fork governance summary
+        run: |
+          set -euo pipefail
+          {
+            echo "## Fork Governance Conformance"
+            echo ""
+            echo "| Lane | Result |"
+            echo "|------|--------|"
+            echo "| DEED syntax | \`${DEED_RESULT}\` |"
+            echo "| K9-DEED conformance (L0–L2) | \`${K9_RESULT}\` |"
+            echo "| Fleet report-backs (producer, not a lane) | \`${FLEET_RESULT}\` |"
+            echo ""
+            echo "### gitbot-fleet report-backs on this head"
+            echo ""
+            if ls report-backs/*.json >/dev/null 2>&1; then
+              echo "| Member | Status | Findings | Reason |"
+              echo "|---|---|---:|---|"
+              for f in report-backs/*.json; do
+                jq -r '"| \(.reporter) | \(.status) | \(.findings | length) | \(.reason // "") |"' "$f"
+              done
+            else
+              echo "_No report-back artifact reached this job (fleet job: ${FLEET_RESULT}); every enrolled member renders orange in the grid._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DEED_RESULT" != "success" ] || [ "$K9_RESULT" != "success" ]; then
+            echo "::error::Fork governance failed (deed=${DEED_RESULT}, k9=${K9_RESULT})"
+            exit 1
+          fi

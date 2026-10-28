@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# Live required status check contexts on default branch (`main`) and the
+# workflow files in `.github/workflows/` that produce them on `pull_request`.
+#
+# Format: <exact check context> => <.github/workflows/file.yml>
+#
+# Verified by `scripts/check-required-contexts.sh` (3-outcome 0/1/2) so a
+# renamed or path-filtered workflow can never silently strand pull requests
+# behind an unsatisfiable ruleset check (issue #219 class).
+scan / gitleaks => .github/workflows/secret-scanner.yml

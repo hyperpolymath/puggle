@@ -1,0 +1,131 @@
+# This workflow is managed by gh actions-lock.
+# SPDX-License-Identifier: MPL-2.0
+#
+# dependabot-automerge.yml — enable GitHub's native auto-merge on Dependabot
+# pull requests that satisfy the fail-closed severity + semver policy (#204):
+#   1. PR author is Dependabot (verified by immutable numeric user.id 49699333
+#      AND user.login == 'dependabot[bot]', never spoofable github.actor);
+#   2. Security update (GHSA ID present) whose GitHub Advisory severity is
+#      verified via the GitHub Advisory API as `low` or `medium` (CVSS < 7.0;
+#      `high`, `critical`, or unreadable advisories fail closed to human review);
+#   3. Semver update is `patch` or `minor` (never `major`).
+#
+# Never invokes `--admin`: GitHub's native `--auto` waits for all required
+# status checks and code-scanning rulesets to pass (`squabble != bypass`).
+
+name: Dependabot Auto-Merge
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.user.id == 49699333
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Decide policy outcome (fail-closed on severity & semver)
+        id: policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          META_GHSA_ID: ${{ steps.meta.outputs.ghsa-id }}
+          DEP_NAMES: ${{ steps.meta.outputs.dependency-names }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          action="manual_review"
+          severity="n/a"
+          reason="routine or non-qualifying update"
+
+          # Populate GHSA_ID from fetch-metadata when available; otherwise extract
+          # the GHSA identifier from Dependabot's security PR body and cross-verify
+          # against the authoritative GitHub Advisory API + dependency name (never
+          # trusting PR text alone, and requiring no PAT secret).
+          GHSA_ID="$META_GHSA_ID"
+          if [ -z "$GHSA_ID" ] && [ -n "$PR_BODY" ]; then
+            GHSA_ID="$(printf '%s\n' "$PR_BODY" | grep -oE 'GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}' | head -n 1 || true)"
+          fi
+
+          if [ -n "$GHSA_ID" ]; then
+            if [[ "$UPDATE_TYPE" = "version-update:semver-patch" || "$UPDATE_TYPE" = "version-update:semver-minor" ]]; then
+              adv_json="$(gh api "/advisories/${GHSA_ID}" 2>/dev/null || echo '{}')"
+              severity="$(printf '%s' "$adv_json" | jq -r '.severity // "unknown"')"
+              cvss="$(printf '%s' "$adv_json" | jq -r 'if (.cvss.score | type) == "number" then (.cvss.score | tostring) else "invalid" end')"
+              pkg_match="$(printf '%s' "$adv_json" | jq -r --arg deps "$DEP_NAMES" '
+                ($deps | split(",") | map(gsub("^\\s+|\\s+$"; "") | ascii_downcase) | map(select(length > 0))) as $dlist
+                | [ (.vulnerabilities // [])[].package.name // "" | ascii_downcase ] as $alist
+                | if ($dlist | length) > 0 and any($dlist[]; . as $d | any($alist[]; . == $d)) then "true" else "false" end
+              ')"
+              if [ "$pkg_match" = "true" ] && [[ "$severity" = "low" || "$severity" = "medium" ]] && [[ "$cvss" =~ ^[0-9]+(\.[0-9]+)?$ ]] && awk -v s="$cvss" 'BEGIN { exit !(s + 0 < 7.0) }'; then
+                action="automerge"
+                reason="verified ${severity} security ${UPDATE_TYPE#version-update:} (CVSS ${cvss} < 7.0)"
+              else
+                reason="security advisory ${GHSA_ID} (severity='${severity}', CVSS=${cvss}, pkg_match=${pkg_match}) — human review required"
+              fi
+            else
+              reason="security update ${GHSA_ID} is '${UPDATE_TYPE}' (major or unknown) — human review required"
+            fi
+          fi
+
+          {
+            echo "action=$action"
+            echo "severity=$severity"
+            echo "reason=$reason"
+            echo "update_type=$UPDATE_TYPE"
+            echo "ghsa=$GHSA_ID"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Approve PR (when fail-closed policy allows)
+        if: steps.policy.outputs.action == 'automerge'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GHSA_ID: ${{ steps.policy.outputs.ghsa }}
+          SEVERITY: ${{ steps.policy.outputs.severity }}
+          UPDATE_TYPE: ${{ steps.policy.outputs.update_type }}
+        run: |
+          gh pr review --approve "$PR_URL" \
+            --body "Auto-approving Dependabot security update (${GHSA_ID}, severity=${SEVERITY}, ${UPDATE_TYPE}). Policy: verified low/medium security patch/minor only."
+
+      - name: Enable auto-merge (when fail-closed policy allows)
+        if: steps.policy.outputs.action == 'automerge'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr merge --auto --squash "$PR_URL"
+
+      - name: Write decision to step summary
+        env:
+          ACTION: ${{ steps.policy.outputs.action }}
+          SEVERITY: ${{ steps.policy.outputs.severity }}
+          REASON: ${{ steps.policy.outputs.reason }}
+          UPDATE_TYPE: ${{ steps.policy.outputs.update_type }}
+          GHSA: ${{ steps.policy.outputs.ghsa }}
+        run: |
+          {
+            echo "## Dependabot Auto-Merge Decision"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Policy action | \`${ACTION}\` |"
+            echo "| Reason | ${REASON} |"
+            echo "| Advisory severity | \`${SEVERITY}\` |"
+            echo "| Update type | \`${UPDATE_TYPE}\` |"
+            echo "| GHSA ID | \`${GHSA:-n/a}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

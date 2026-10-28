@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) {{CURRENT_YEAR}} {{AUTHOR}} ({{OWNER}}) <{{AUTHOR_EMAIL}}>
+//
+// Dev Container configuration for {{PROJECT_NAME}} — rootless Podman (default).
+// Works with: VS Code Dev Containers with `dev.containers.dockerPath` = podman,
+// and the devcontainer CLI (`devcontainer up --docker-path podman`).
+// Docker, GitHub Codespaces and Gitpod: use .devcontainer/docker/devcontainer.json
+// instead — Docker rejects the Podman-only `--userns=keep-id` below.
+{
+  "build": {
+    "context": "..",
+    "dockerfile": "Containerfile"
+  },
+  "containerEnv": {
+    "EDITOR": "code --wait",
+    "HOME": "/home/nonroot",
+    "LANG": "C.UTF-8"
+  },
+  "containerUser": "nonroot",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "EditorConfig.EditorConfig",
+        "eamodio.gitlens",
+        "streetsidesoftware.code-spell-checker",
+        "timonwong.shellcheck",
+        "tamasfe.even-better-toml",
+        "skellock.just",
+        "redhat.vscode-yaml",
+        "DavidAnson.vscode-markdownlint",
+        "asciidoctor.asciidoctor-vscode",
+        "usernamehw.errorlens"
+      ],
+      "settings": {
+        "[makefile]": {
+          "editor.insertSpaces": false
+        },
+        "editor.formatOnSave": true,
+        "editor.insertSpaces": true,
+        "editor.tabSize": 2,
+        "files.insertFinalNewline": true,
+        "files.trimFinalNewlines": true,
+        "files.trimTrailingWhitespace": true
+      }
+    }
+  },
+  "name": "{{PROJECT_NAME}} (Podman)",
+  "postCreateCommand": "just deps",
+  "remoteUser": "nonroot",
+  // Rootless Podman maps your host user to root inside the container, so the
+  // bind-mounted workspace would be owned by root and unwritable for `nonroot`.
+  // keep-id maps your host user to uid/gid 65532 (`nonroot`, built into wolfi-base) instead.
+  // label=disable lets the workspace mount work on SELinux-enforcing hosts.
+  "runArgs": [
+    "--userns=keep-id:uid=65532,gid=65532",
+    "--security-opt=label=disable"
+  ],
+  "shutdownAction": "stopContainer",
+  "updateRemoteUserUID": false
+}

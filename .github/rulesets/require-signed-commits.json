@@ -1,0 +1,1 @@
+{"bypass_actors":[],"conditions":{"ref_name":{"exclude":[],"include":["~DEFAULT_BRANCH"]}},"enforcement":"active","name":"Require-Signed-Commits","rules":[{"type":"required_signatures"}],"target":"branch"}

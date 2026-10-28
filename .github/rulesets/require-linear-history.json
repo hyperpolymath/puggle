@@ -1,0 +1,1 @@
+{"bypass_actors":[],"conditions":{"ref_name":{"exclude":[],"include":["~DEFAULT_BRANCH"]}},"enforcement":"active","name":"Require-Linear-History","rules":[{"type":"required_linear_history"}],"target":"branch"}
