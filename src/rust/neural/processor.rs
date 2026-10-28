@@ -21,6 +21,13 @@ impl LogitProcessor {
     /// Masking means negative infinity, not zero: zero is still a possible
     /// probability after softmax. Validation is performed against speculative
     /// state and therefore cannot partially apply a rejected token.
+    /// Slice indices are token identifiers. Returned counts describe symbolic
+    /// validity, including allowed tokens with non-finite logits.
+    ///
+    /// # Errors
+    /// Returns `SymbolicDeadEnd` if no token is allowed, or `VocabularyTooLarge`
+    /// if an index cannot fit in `TokenId`. The slice may be modified on error;
+    /// individual validation errors are converted to masked logits.
     pub fn apply<C: SymbolicConstraint>(
         &self,
         constraint: &C,
@@ -42,6 +49,9 @@ impl LogitProcessor {
         Ok(stats)
     }
 
+    /// Select the largest finite logit, preferring the lowest index on ties.
+    /// Return `NoFiniteLogit` if none exists or `VocabularyTooLarge` if a finite
+    /// entry's index cannot fit in `TokenId`.
     fn select(&self, logits: &[f32]) -> Result<TokenId, GenerationError> {
         let mut best: Option<(TokenId, f32)> = None;
         for (index, logit) in logits.iter().copied().enumerate() {
@@ -63,6 +73,9 @@ impl LogitProcessor {
 /// may wrap Candle, tch-rs, a remote untrusted model, or a deterministic test
 /// model. Logits must cover exactly one vocabulary distribution per call.
 pub trait TokenModel: Send {
+    /// Evaluate the generated prefix, which is empty on the first step, and
+    /// return next-token scores indexed by token identifier. Evaluation errors
+    /// are propagated by the decoder as `GenerationError`.
     fn logits(&mut self, prefix: &[TokenId]) -> Result<Vec<f32>, GenerationError>;
 }
 
@@ -99,6 +112,14 @@ where
 
     /// Greedily decode under the symbolic mask. Sampling can be layered on top
     /// of `LogitProcessor::apply`; it must never sample before masking.
+    /// Returns generated tokens and the final constraint, choosing the lowest
+    /// token identifier when finite logits tie.
+    ///
+    /// # Errors
+    /// Propagates model, mask, selection, and commit errors. Returns
+    /// `StepBudgetExhausted` if `max_steps` is zero, even for a complete initial
+    /// constraint, or if generation remains incomplete after that many tokens.
+    /// Completion on the final permitted token succeeds.
     pub fn generate(mut self) -> Result<Generation<C>, GenerationError> {
         if self.max_steps == 0 {
             return Err(GenerationError::StepBudgetExhausted { budget: 0 });

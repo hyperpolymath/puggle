@@ -14,6 +14,12 @@ pub mod puggle_handoff_capnp {
 
 /// Encode an already frozen value. There is intentionally no encoder accepting
 /// a bare AST or caller-supplied receipt.
+/// Returns an unpacked Cap'n Proto message containing the canonical AST, target,
+/// hashes, and consensus receipt, with distances and threshold in millionths.
+///
+/// # Errors
+/// Returns `WireError::CountOverflow` if an acceptor count, node count, or quorum
+/// cannot fit in a wire `UInt32` field.
 pub fn encode(spec: &FrozenSpec) -> Result<Vec<u8>, WireError> {
     let consensus = spec.consensus();
     let ballot = consensus.ballot();

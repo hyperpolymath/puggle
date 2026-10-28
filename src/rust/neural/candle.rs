@@ -12,6 +12,8 @@ pub struct CandleTokenModel<F> {
 }
 
 impl<F> CandleTokenModel<F> {
+    /// Wrap a forward callback receiving the generated token prefix.
+    /// For decoding, it must return rank-one `f32` logits on each invocation.
     #[must_use]
     pub const fn new(forward: F) -> Self {
         Self { forward }
@@ -22,6 +24,8 @@ impl<F> TokenModel for CandleTokenModel<F>
 where
     F: FnMut(&[TokenId]) -> candle_core::Result<Tensor> + Send,
 {
+    /// Evaluate the callback and copy its rank-one `f32` scores into a vector.
+    /// Callback and tensor conversion errors become `GenerationError::Model`.
     fn logits(&mut self, prefix: &[TokenId]) -> Result<Vec<f32>, GenerationError> {
         (self.forward)(prefix)
             .and_then(|tensor| tensor.to_vec1::<f32>())
@@ -31,6 +35,11 @@ where
 
 /// Apply Puggle's mask to a rank-one Candle logits tensor and return a tensor
 /// on the same device. Model evaluation remains outside Puggle's trust claims.
+/// The input tensor is unchanged; rejected token scores become negative infinity.
+///
+/// # Errors
+/// Propagates tensor conversion and construction failures as `CandleError::Candle`
+/// and symbolic dead ends or oversized vocabularies as `CandleError::Mask`.
 pub fn mask_candle_logits<C: SymbolicConstraint>(
     constraint: &C,
     logits: &Tensor,

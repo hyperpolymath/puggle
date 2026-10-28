@@ -78,6 +78,8 @@ impl Substitution {
 
     /// Unify two terms under this substitution. A variable is never bound to a
     /// term containing itself, including through an existing binding chain.
+    /// Returns an extended substitution on success or `None` for incompatible
+    /// terms or an occurs-check failure, leaving this substitution unchanged.
     #[must_use]
     pub fn unify(&self, left: &Term, right: &Term) -> Option<Self> {
         let mut extended = self.clone();
@@ -158,6 +160,11 @@ impl State {
         Self::default()
     }
 
+    /// Allocate the next variable identifier in this state, starting at zero.
+    /// Cloned states retain the same counter, so identifiers are not global.
+    ///
+    /// # Panics
+    /// Panics if advancing the variable counter would overflow `u64`.
     pub fn fresh(&mut self) -> LVar {
         let variable = LVar(self.next_variable);
         self.next_variable = self
@@ -204,6 +211,7 @@ impl Stream {
         Self::Mature(state, Box::new(Self::Empty))
     }
 
+    /// Defer calling `thunk` until this branch is forced for an answer.
     #[must_use]
     pub fn suspend(thunk: impl FnOnce() -> Stream + Send + 'static) -> Self {
         Self::Immature(Box::new(thunk))
@@ -220,8 +228,9 @@ impl Stream {
         }
     }
 
-    /// Force at most `limit` answers. The limit is mandatory at the public API
-    /// so a logically infinite relation cannot hang its caller accidentally.
+    /// Collect up to `limit` answers, stopping earlier if the stream ends.
+    /// A zero limit forces nothing. The limit does not bound search time:
+    /// forcing the next answer may diverge.
     #[must_use]
     pub fn take(self, limit: usize) -> Vec<State> {
         let mut answers = Vec::new();
@@ -239,6 +248,8 @@ impl Stream {
 
 pub type Goal = Arc<dyn Fn(State) -> Stream + Send + Sync + 'static>;
 
+/// Create a goal yielding one extended state if the terms unify, or no answers
+/// if they conflict or would introduce a cyclic binding.
 #[must_use]
 pub fn eq(left: Term, right: Term) -> Goal {
     Arc::new(move |state| {
@@ -252,6 +263,8 @@ pub fn eq(left: Term, right: Term) -> Goal {
     })
 }
 
+/// Merge answer streams, rotating branches after an answer or suspension.
+/// Fairness requires suspended computations to return control.
 #[must_use]
 pub fn mplus(left: Stream, right: Stream) -> Stream {
     match left {
@@ -263,6 +276,7 @@ pub fn mplus(left: Stream, right: Stream) -> Stream {
     }
 }
 
+/// Apply `goal` to each input state and interleave its resulting answer streams.
 #[must_use]
 pub fn bind(stream: Stream, goal: Goal) -> Stream {
     match stream {
@@ -278,11 +292,13 @@ pub fn bind(stream: Stream, goal: Goal) -> Stream {
     }
 }
 
+/// Create a conjunction that passes each answer from `left` into `right`.
 #[must_use]
 pub fn conj(left: Goal, right: Goal) -> Goal {
     Arc::new(move |state| bind(left(state), right.clone()))
 }
 
+/// Run both goals from the same initial state and interleave their answers.
 #[must_use]
 pub fn disj(left: Goal, right: Goal) -> Goal {
     Arc::new(move |state| {
@@ -295,6 +311,10 @@ pub fn disj(left: Goal, right: Goal) -> Goal {
     })
 }
 
+/// Create a goal that allocates a fresh variable before invoking `relation`.
+///
+/// # Panics
+/// Running the goal panics if [`State::fresh`] exhausts the variable counter.
 #[must_use]
 pub fn call_fresh<F>(relation: F) -> Goal
 where
@@ -306,6 +326,8 @@ where
     })
 }
 
+/// Run a goal from an empty state and collect at most `answers` states.
+/// The answer count does not bound search time; see [`Stream::take`].
 #[must_use]
 pub fn run(goal: Goal, answers: usize) -> Vec<State> {
     goal(State::new()).take(answers)

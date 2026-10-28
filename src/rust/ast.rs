@@ -20,6 +20,7 @@ pub enum TargetProver {
 }
 
 impl TargetProver {
+    /// Return the lowercase target label used in canonical ASTs and JSON.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -56,6 +57,11 @@ impl Sort {
         Self::Function(Box::new(domain), Box::new(codomain))
     }
 
+    /// Check identifier syntax, variable scope, and target support recursively.
+    ///
+    /// Returns `AstError` for invalid identifiers, variables absent from `scope`,
+    /// or dependent or function sorts used with SMT-LIB 2. Named sorts need not
+    /// appear in `scope` and are not checked against external declarations.
     pub(crate) fn validate(
         &self,
         target: TargetProver,
@@ -84,6 +90,10 @@ impl Sort {
         }
     }
 
+    /// Translate a sort into a logic term using existing binder variables.
+    ///
+    /// Returns `AstError::UnboundVariable` for a variable absent from `bindings`.
+    /// Identifier syntax and target support must be validated separately.
     pub(crate) fn relational_term(
         &self,
         bindings: &std::collections::BTreeMap<String, crate::kanren::LVar>,
@@ -126,6 +136,7 @@ impl Sort {
         }
     }
 
+    /// Encode sort structure and byte-length-prefixed names without validation.
     #[must_use]
     pub fn canonical(&self) -> String {
         let mut output = String::new();
@@ -157,6 +168,7 @@ pub struct Binding {
 }
 
 impl Binding {
+    /// Create a binder whose name and sort are checked when building an AST.
     #[must_use]
     pub fn new(name: impl Into<String>, sort: Sort) -> Self {
         Self {
@@ -185,6 +197,10 @@ pub struct FormalAst {
 }
 
 impl FormalAst {
+    /// Construct a signature after checking identifiers, scope, and target sorts.
+    ///
+    /// Returns any error from [`Self::validate`]. Named sorts are not resolved
+    /// against a prover environment, and no prover typechecking is performed.
     pub fn new(
         target: TargetProver,
         name: impl Into<String>,
@@ -201,6 +217,12 @@ impl FormalAst {
         Ok(ast)
     }
 
+    /// Check declaration and binder names, binder uniqueness, and sort validity.
+    ///
+    /// A binder is visible only to later binders and the result. Returns
+    /// `AstError` for invalid or reserved declaration/binder names, duplicate
+    /// binders, invalid sort identifiers, unbound variables, or dependent or
+    /// function sorts in SMT-LIB 2.
     pub fn validate(&self) -> Result<(), AstError> {
         validate_declaration_identifier(&self.name, "declaration")?;
         let mut scope = BTreeSet::new();
@@ -256,6 +278,7 @@ impl FormalAst {
         output
     }
 
+    /// Return the BLAKE3 hash of this signature's canonical UTF-8 bytes.
     #[must_use]
     pub fn digest(&self) -> [u8; 32] {
         *blake3::hash(self.canonical().as_bytes()).as_bytes()
@@ -318,6 +341,9 @@ fn push_field(output: &mut String, value: &str) {
     let _ = write!(output, "{}:{};", value.len(), value);
 }
 
+/// Accept a nonempty ASCII identifier starting with a letter or underscore,
+/// followed by letters, digits, or underscores. Otherwise return
+/// `AstError::InvalidIdentifier`, using `kind` as the diagnostic label.
 pub(crate) fn validate_identifier(value: &str, kind: &'static str) -> Result<(), AstError> {
     let mut characters = value.chars();
     let Some(first) = characters.next() else {
@@ -337,6 +363,8 @@ pub(crate) fn validate_identifier(value: &str, kind: &'static str) -> Result<(),
     Ok(())
 }
 
+/// Validate identifier syntax and reject the shared reserved-word list.
+/// Invalid syntax or a reserved name returns `AstError::InvalidIdentifier`.
 pub(crate) fn validate_declaration_identifier(
     value: &str,
     kind: &'static str,

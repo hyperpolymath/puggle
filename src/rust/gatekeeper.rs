@@ -33,15 +33,21 @@ impl AgentError {
 
 #[async_trait]
 pub trait Formaliser: Send + Sync {
+    /// Produce an untrusted candidate from an original or repaired prompt.
+    /// Return `AgentError` on failure; the gatekeeper counts it as a rejected
+    /// attempt and may retry with repair feedback.
     async fn formalise(&self, prompt: &str) -> Result<FormalAst, AgentError>;
 }
 
 #[async_trait]
 pub trait Deformaliser: Send + Sync {
+    /// Translate a candidate into English for comparison with the original.
+    /// Return `AgentError` on failure, which rejects the candidate audit.
     async fn deformalise(&self, ast: &FormalAst) -> Result<String, AgentError>;
 }
 
 pub trait ConceptExtractor: Send + Sync {
+    /// Extract distinct concept identifiers for set-based semantic comparison.
     fn extract(&self, text: &str) -> BTreeSet<String>;
 }
 
@@ -56,6 +62,10 @@ pub trait ConceptExtractor: Send + Sync {
 pub struct LexicalConceptExtractor;
 
 impl ConceptExtractor for LexicalConceptExtractor {
+    /// Extract lowercase concepts, preserving `wn:` and `msc:` namespaces.
+    /// Stop words are omitted; other tokens receive simple plural normalization
+    /// and a `lex:` prefix. Punctuation delimits tokens except `:`, `-`, `_`,
+    /// and `.`, with leading/trailing periods, hyphens, and underscores removed.
     fn extract(&self, text: &str) -> BTreeSet<String> {
         text.split(|character: char| {
             !(character.is_alphanumeric() || matches!(character, ':' | '-' | '_' | '.'))
@@ -105,11 +115,13 @@ impl SemanticComparison {
         self.distance
     }
 
+    /// Concepts present in the original but absent from the back-translation.
     #[must_use]
     pub const fn missing(&self) -> &BTreeSet<String> {
         &self.missing
     }
 
+    /// Concepts introduced by the back-translation and absent from the original.
     #[must_use]
     pub const fn extraneous(&self) -> &BTreeSet<String> {
         &self.extraneous
@@ -117,6 +129,9 @@ impl SemanticComparison {
 }
 
 pub trait SemanticMetric: Send + Sync {
+    /// Compare the exact original input with a candidate's back-translation.
+    /// Return distance and repair feedback, or a `SemanticError` that rejects
+    /// the candidate audit.
     fn compare(
         &self,
         original: &str,
@@ -129,11 +144,13 @@ pub struct JaccardMetric {
 }
 
 impl JaccardMetric {
+    /// Use the supplied extractor for both sides of each Jaccard comparison.
     #[must_use]
     pub fn new(extractor: Arc<dyn ConceptExtractor>) -> Self {
         Self { extractor }
     }
 
+    /// Build a metric using the deterministic [`LexicalConceptExtractor`].
     #[must_use]
     pub fn lexical() -> Self {
         Self::new(Arc::new(LexicalConceptExtractor))
@@ -141,6 +158,10 @@ impl JaccardMetric {
 }
 
 impl SemanticMetric for JaccardMetric {
+    /// Compute one minus intersection size divided by union size, rounded to
+    /// integer millionths, with omitted and introduced concept sets.
+    /// If either concept set is empty, return maximum distance, even when both
+    /// are empty.
     fn compare(
         &self,
         original: &str,
@@ -204,6 +225,10 @@ pub struct FrozenSpec {
 }
 
 impl FrozenSpec {
+    /// Freeze an AST whose digest matches an accepting consensus, recording a
+    /// BLAKE3 digest of the exact original UTF-8 bytes.
+    /// Return `SemanticDrift` if quorum or drift checks fail, or `HashBinding`
+    /// if the consensus proposal hash differs from the AST digest.
     fn freeze(
         original: &str,
         ast: FormalAst,
@@ -239,6 +264,7 @@ impl FrozenSpec {
         &self.ast_hash
     }
 
+    /// BLAKE3 digest of the exact original UTF-8 bytes, without normalization.
     #[must_use]
     pub const fn original_hash(&self) -> &[u8; 32] {
         &self.original_hash
@@ -249,6 +275,7 @@ impl FrozenSpec {
         &self.consensus
     }
 
+    /// Zero-based generation attempt; a directly audited candidate uses zero.
     #[must_use]
     pub const fn attempt(&self) -> u32 {
         self.attempt
@@ -263,6 +290,12 @@ pub struct SemanticGatekeeper {
 }
 
 impl SemanticGatekeeper {
+    /// Configure three or five concurrent back-translators and a positive
+    /// generation attempt budget. Original inputs are limited to 64 KiB of UTF-8.
+    ///
+    /// # Errors
+    /// Returns `InvalidAgentCount` for any other agent count, or
+    /// `InvalidAttemptBudget` when `max_attempts` is zero.
     pub fn new(
         deformalisers: Vec<Arc<dyn Deformaliser>>,
         metric: Arc<dyn SemanticMetric>,
@@ -285,6 +318,15 @@ impl SemanticGatekeeper {
     /// Generate, audit, and repair until a candidate freezes or the bounded
     /// attempt budget is exhausted. Semantic comparisons always use the exact
     /// original input, never a mutated repair prompt.
+    /// The attempt budget includes the initial generation; success records a
+    /// zero-based attempt index in the frozen specification. Audits require a
+    /// Tokio runtime for their agent and acceptor tasks.
+    ///
+    /// # Errors
+    /// Returns `EmptyInput` for whitespace-only input or `InputTooLong` above
+    /// 64 KiB. Formaliser and audit failures trigger repair attempts and become
+    /// `AttemptsExhausted` with the last rejection message when the budget ends.
+    /// Returns `AttemptOverflow` if an attempt index cannot fit in `u32`.
     pub async fn run<F: Formaliser>(
         &self,
         original: &str,
@@ -313,6 +355,18 @@ impl SemanticGatekeeper {
     }
 
     /// Audit an already generated untrusted candidate without retrying it.
+    /// Runs all back-translators concurrently on a Tokio runtime and freezes
+    /// only when their median distance is strictly below 50,000 millionths
+    /// (0.05), Paxos reaches quorum, and the proposal hash matches the AST.
+    /// The resulting attempt index is zero.
+    ///
+    /// # Errors
+    /// Returns `Input` for whitespace-only input or input above 64 KiB, and
+    /// propagates AST, agent, task-join, metric, and Paxos failures as
+    /// `CandidateRejection`. An agent output above 64 KiB is rejected as
+    /// `DeformalisationTooLong`; missing observations, excessive drift, and a
+    /// mismatched proposal hash are also rejected. Every agent must succeed,
+    /// even when a semantic majority would otherwise pass.
     pub async fn audit_candidate(
         &self,
         original: &str,
@@ -445,6 +499,8 @@ fn mutate_prompt(original: &str, rejection: &CandidateRejection, attempt: u32) -
     prompt
 }
 
+/// Append at most `limit` UTF-8 bytes of `value`, ending on a character boundary.
+/// If truncated, append an ellipsis in addition to that byte budget.
 fn push_bounded(output: &mut String, value: &str, limit: usize) {
     if value.len() <= limit {
         output.push_str(value);
@@ -483,6 +539,7 @@ pub struct EnglishDeformaliser {
 }
 
 impl EnglishDeformaliser {
+    /// Choose one of three deterministic English templates using `style % 3`.
     #[must_use]
     pub const fn new(style: usize) -> Self {
         Self { style }
@@ -491,6 +548,8 @@ impl EnglishDeformaliser {
 
 #[async_trait]
 impl Deformaliser for EnglishDeformaliser {
+    /// Describe the declaration, target, parameters, and canonical result sort.
+    /// This local renderer always succeeds and performs no model calls.
     async fn deformalise(&self, ast: &FormalAst) -> Result<String, AgentError> {
         let bindings = if ast.bindings().is_empty() {
             "no parameters".to_owned()

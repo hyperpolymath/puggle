@@ -46,6 +46,7 @@ struct Health {
     echidna_tcb: bool,
 }
 
+/// Run the CLI, printing failures and terminating the process with exit code 1.
 #[tokio::main]
 async fn main() {
     if let Err(error) = run().await {
@@ -54,6 +55,8 @@ async fn main() {
     }
 }
 
+/// Serve on `serve`, print help for help flags or no command, and reject unknown
+/// commands. Server configuration and I/O errors propagate to the entry point.
 async fn run() -> Result<(), Box<dyn Error>> {
     let mut arguments = env::args().skip(1);
     match arguments.next().as_deref() {
@@ -77,6 +80,10 @@ async fn run() -> Result<(), Box<dyn Error>> {
     }
 }
 
+/// Serve health and freeze routes with three reference agents and a lexical
+/// metric, limiting request bodies to 128 KiB. `PUGGLE_ADDR` sets the socket
+/// address; an absent or non-Unicode value falls back to `127.0.0.1:3000`.
+/// Return address parsing, gatekeeper construction, bind, or serving errors.
 async fn serve() -> Result<(), Box<dyn Error>> {
     let address = env::var("PUGGLE_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_owned());
     let address: SocketAddr = address.parse()?;
@@ -104,12 +111,15 @@ async fn serve() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Wait for Ctrl-C; failure to install the signal handler also completes the
+/// future, allowing the server's graceful shutdown to proceed.
 async fn shutdown() {
     if let Err(error) = tokio::signal::ctrl_c().await {
         eprintln!("puggle: shutdown signal failed: {error}");
     }
 }
 
+/// Report liveness and that this service is outside ECHIDNA's trusted base.
 async fn health() -> Json<Health> {
     Json(Health {
         status: "ok",
@@ -117,6 +127,10 @@ async fn health() -> Json<Health> {
     })
 }
 
+/// Validate and audit a candidate once, returning a Cap'n Proto handoff with
+/// its lowercase hexadecimal AST digest in `x-puggle-ast-hash` on success.
+/// AST or audit failures become JSON errors with status 422; wire or digest
+/// header encoding failures become JSON errors with status 500.
 async fn freeze(State(state): State<AppState>, Json(request): Json<FreezeRequest>) -> Response {
     let candidate = request.candidate;
     let ast = match FormalAst::new(

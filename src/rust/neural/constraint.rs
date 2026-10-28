@@ -44,6 +44,7 @@ pub trait SymbolicConstraint: Send {
     fn validate(&self, token: TokenId) -> Result<(), ConstraintError>;
     /// Commit one token after it has been selected from the masked logits.
     fn commit(&mut self, token: TokenId) -> Result<(), ConstraintError>;
+    /// Report whether generation has reached a terminal state.
     fn is_complete(&self) -> bool;
 }
 
@@ -67,6 +68,8 @@ pub struct KanrenConstraint {
 }
 
 impl KanrenConstraint {
+    /// Start an empty signature using the supplied token-to-action vocabulary.
+    /// Tokens absent from this map are rejected during validation and commit.
     #[must_use]
     pub fn new(vocabulary: BTreeMap<TokenId, TokenAction>) -> Self {
         Self {
@@ -92,6 +95,8 @@ impl KanrenConstraint {
         &self.logic
     }
 
+    /// Return currently valid vocabulary tokens in ascending identifier order
+    /// without committing a transition or consuming a fresh variable.
     #[must_use]
     pub fn allowed_tokens(&self) -> Vec<TokenId> {
         self.vocabulary
@@ -101,6 +106,9 @@ impl KanrenConstraint {
             .collect()
     }
 
+    /// Revalidate and return the signature after a `Finish` action is committed.
+    /// Returns `Ok(None)` before that point or if required fields are missing,
+    /// and propagates any error from [`FormalAst::new`].
     pub fn ast(&self) -> Result<Option<FormalAst>, AstError> {
         if self.phase != Phase::Finished {
             return Ok(None);
@@ -114,6 +122,9 @@ impl KanrenConstraint {
         FormalAst::new(target, name, self.bindings.clone(), result).map(Some)
     }
 
+    /// Return the next state without modifying this one. Reject unknown tokens,
+    /// invalid transitions, AST validation errors, unification conflicts, and
+    /// missing fields required by the current phase as `ConstraintError`.
     fn advance(&self, token: TokenId) -> Result<Self, ConstraintError> {
         let action = self
             .vocabulary
@@ -227,11 +238,15 @@ impl SymbolicConstraint for KanrenConstraint {
         self.advance(token).map(|_| ())
     }
 
+    /// Apply one validated transition, leaving this state unchanged on error.
+    /// Returns the same errors as speculative validation.
     fn commit(&mut self, token: TokenId) -> Result<(), ConstraintError> {
         *self = self.advance(token)?;
         Ok(())
     }
 
+    /// Return whether `Finish` has been committed, rather than merely whether
+    /// the result sort has been supplied.
     fn is_complete(&self) -> bool {
         self.phase == Phase::Finished
     }

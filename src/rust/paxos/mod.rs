@@ -19,6 +19,8 @@ const MAX_ROUNDS_PER_PROPOSER: u32 = 8;
 pub struct Distance(u32);
 
 impl Distance {
+    /// Convert a finite distance in `[0, 1]` to the nearest integer millionth.
+    /// Returns `DistanceError::OutOfRange` for non-finite or out-of-range input.
     pub fn from_f64(value: f64) -> Result<Self, DistanceError> {
         if !value.is_finite() || !(0.0..=1.0).contains(&value) {
             return Err(DistanceError::OutOfRange);
@@ -27,6 +29,8 @@ impl Distance {
         Ok(Self(scaled as u32))
     }
 
+    /// Accept a distance in integer millionths, from zero through 1,000,000.
+    /// Larger values return `DistanceError::OutOfRange`.
     pub const fn from_millionths(value: u32) -> Result<Self, DistanceError> {
         if value <= 1_000_000 {
             Ok(Self(value))
@@ -45,6 +49,8 @@ impl Distance {
         f64::from(self.0) / 1_000_000.0
     }
 
+    /// Test whether the stored distance is strictly below 50,000 millionths
+    /// (0.05). Equality with the threshold is rejected.
     #[must_use]
     pub fn is_semantically_equivalent(self) -> bool {
         self < DRIFT_THRESHOLD
@@ -81,6 +87,7 @@ pub struct Ballot {
 }
 
 impl Ballot {
+    /// Create a ballot ordered first by round, then by proposer identifier.
     #[must_use]
     pub const fn new(round: u32, proposer: u32) -> Self {
         Self { round, proposer }
@@ -237,6 +244,8 @@ impl Consensus {
         quorum_for(self.node_count)
     }
 
+    /// Require both an acceptor majority and a stored distance strictly below
+    /// 0.05; reaching a Paxos quorum alone does not establish this condition.
     #[must_use]
     pub fn is_semantically_accepting(&self) -> bool {
         self.acceptor_count >= self.quorum() && self.proposal.distance.is_semantically_equivalent()
@@ -257,6 +266,14 @@ impl Drop for PaxosCluster {
 }
 
 impl PaxosCluster {
+    /// Spawn independent in-memory acceptors for exactly three or five nodes.
+    /// Dropping the cluster aborts its acceptor tasks.
+    ///
+    /// # Errors
+    /// Returns `InvalidNodeCount` for any other node count.
+    ///
+    /// # Panics
+    /// Panics if called outside a Tokio runtime.
     pub fn new(node_count: usize) -> Result<Self, PaxosError> {
         if !matches!(node_count, 3 | 5) {
             return Err(PaxosError::InvalidNodeCount(node_count));
@@ -274,6 +291,14 @@ impl PaxosCluster {
     /// Run proposers in a deterministic succession until one reaches quorum.
     /// Their ballots remain globally ordered, and later proposers must adopt a
     /// previously accepted value discovered during prepare.
+    /// Requires one proposal per node and consumes the cluster, stopping its
+    /// actors on return. The chosen value may exceed the semantic threshold;
+    /// callers must check [`Consensus::is_semantically_accepting`].
+    ///
+    /// # Errors
+    /// Returns `ProposalCount` for a mismatched proposal count. Unavailable
+    /// acceptors count as missing votes. If all proposers fail, returns the last
+    /// failure: `NoQuorum` after bounded retries or `BallotExhausted` on overflow.
     pub async fn decide(self, proposals: Vec<Proposal>) -> Result<Consensus, PaxosError> {
         if proposals.len() != self.acceptors.len() {
             return Err(PaxosError::ProposalCount {
@@ -293,6 +318,9 @@ impl PaxosCluster {
     }
 }
 
+/// Seek a majority through at most eight prepare/accept rounds, carrying forward
+/// the value with the highest accepted ballot. Stopped actors are missing votes.
+/// Returns `NoQuorum` on retry exhaustion or `BallotExhausted` on round overflow.
 async fn propose(
     proposer: u32,
     own_proposal: Proposal,
@@ -365,11 +393,15 @@ async fn propose(
     Err(PaxosError::NoQuorum)
 }
 
+/// Advance beyond both the current and rejected rounds, returning
+/// `BallotExhausted` if the next round cannot fit in `u32`.
 fn next_round(current: u32, rejection: Option<Ballot>) -> Result<u32, PaxosError> {
     let minimum = rejection.map_or(current, |ballot| current.max(ballot.round));
     minimum.checked_add(1).ok_or(PaxosError::BallotExhausted)
 }
 
+/// Return the smallest strict majority: half the node count rounded down plus
+/// one. An empty node set therefore requires one vote.
 #[must_use]
 pub const fn quorum_for(node_count: usize) -> usize {
     node_count / 2 + 1

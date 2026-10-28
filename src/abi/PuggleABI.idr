@@ -22,12 +22,14 @@ record FormalAst where
   canonical : String
   digest : Vect 32 Bits8
 
+||| Divide by two, rounding down; zero and one both yield zero.
 public export
 half : Nat -> Nat
 half Z = Z
 half (S Z) = Z
 half (S (S n)) = S (half n)
 
+||| Return the smallest strict majority, including one for an empty node set.
 public export
 quorumFor : Nat -> Nat
 quorumFor nodes = S (half nodes)
@@ -87,10 +89,12 @@ public export
 FormalSignature : Type
 FormalSignature = FrozenSpec
 
+||| Retrieve the receipt bound to this frozen signature.
 public export
 receiptOf : FormalSignature -> ConsensusReceipt
 receiptOf signature = receipt signature
 
+||| Retrieve quorum evidence indexed by this signature's exact receipt counts.
 public export
 quorumOf : (signature : FormalSignature) ->
   QuorumReached (acceptorCount (receiptOf signature)) (nodeCount (receiptOf signature))
