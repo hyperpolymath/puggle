@@ -202,6 +202,10 @@ fn canonical_format_has_a_stable_version_and_length_prefixes() {
 
 #[test]
 fn digest_binds_target_binder_order_and_sort_constructor() {
+    assert_ne!(
+        Sort::named("A").canonical(),
+        Sort::variable("A").canonical()
+    );
     let make = |target, bindings, result| FormalAst::new(target, "f", bindings, result).unwrap();
     let base = make(
         TargetProver::Lean,
@@ -209,18 +213,18 @@ fn digest_binds_target_binder_order_and_sort_constructor() {
             Binding::new("A", Sort::named("Type")),
             Binding::new("x", Sort::named("Nat")),
         ],
-        Sort::named("A"),
+        Sort::named("Nat"),
     );
     for variant in [
         make(
             TargetProver::Agda,
             base.bindings().to_vec(),
-            Sort::named("A"),
+            Sort::named("Nat"),
         ),
         make(
             TargetProver::Lean,
             base.bindings().iter().rev().cloned().collect(),
-            Sort::named("A"),
+            Sort::named("Nat"),
         ),
         make(
             TargetProver::Lean,

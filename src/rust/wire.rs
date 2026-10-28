@@ -31,7 +31,7 @@ pub fn encode(spec: &FrozenSpec) -> Result<Vec<u8>, WireError> {
     {
         let mut root = message.init_root::<puggle_handoff_capnp::formal_signature::Builder<'_>>();
         root.set_ast_hash(spec.ast_hash());
-        root.set_canonical_ast(&spec.ast().canonical());
+        root.set_canonical_ast(spec.ast().canonical());
         root.set_target(match spec.ast().target() {
             TargetProver::Lean => puggle_handoff_capnp::TargetProver::Lean,
             TargetProver::Agda => puggle_handoff_capnp::TargetProver::Agda,
@@ -42,7 +42,7 @@ pub fn encode(spec: &FrozenSpec) -> Result<Vec<u8>, WireError> {
         receipt.set_original_hash(spec.original_hash());
         receipt.set_distance_millionths(consensus.proposal().distance().millionths());
         receipt.set_threshold_millionths(DRIFT_THRESHOLD_MILLIONTHS);
-        receipt.set_ballot_round(ballot.round);
+        receipt.set_ballot_round(u64::from(ballot.round));
         receipt.set_ballot_proposer(ballot.proposer);
         receipt.set_acceptor_count(acceptor_count);
         receipt.set_node_count(node_count);
@@ -115,6 +115,10 @@ mod tests {
         );
         let receipt = root.get_receipt().expect("receipt");
         assert_eq!(receipt.get_ast_hash().expect("hash"), frozen.ast_hash());
+        assert_eq!(
+            receipt.get_ballot_round(),
+            u64::from(frozen.consensus().ballot().round)
+        );
         assert_eq!(receipt.get_quorum(), 2);
         assert_eq!(receipt.get_acceptor_count(), 3);
         assert_eq!(receipt.get_threshold_millionths(), 50_000);
