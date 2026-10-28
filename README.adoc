@@ -79,7 +79,7 @@ The generation path is `Neural[Symbolic]`:
 
 == Build and test
 
-Requirements: Rust 1.82 or newer, the `capnp` compiler, and Idris2 for the ABI
+Requirements: Rust 1.85 or newer, the `capnp` compiler, and Idris2 for the ABI
 check. Candle support is opt-in so the relational and consensus tests do not
 need an ML runtime.
 
@@ -121,6 +121,9 @@ an untrusted structured candidate. This endpoint deliberately does not pretend
 that a model is installed; neural formalisation is available through the
 `Formaliser` trait and `SemanticGatekeeper::run` library pipeline.
 
+This request is rejected with `422`: the default English renderers do not
+produce the concepts "commutative" or "group", so the semantic audit fails.
+
 [source,json]
 ----
 {
@@ -129,6 +132,27 @@ that a model is installed; neural formalisation is available through the
     "target": "lean",
     "name": "operation",
     "bindings": [],
+    "result": { "Named": "Nat" }
+  }
+}
+----
+
+To try a successful handoff with the default renderers, use this request. It
+matches their lexical concepts, including the canonical sort token `n3:Nat`:
+
+[source,json]
+----
+{
+  "original": "The lean signature maps declaration of sort n3:Nat, accepts of sort n3:Nat, returns of sort n3:Nat, maps of sort n3:Nat to n3:Nat.",
+  "candidate": {
+    "target": "lean",
+    "name": "signature",
+    "bindings": [
+      { "name": "declaration", "sort": { "Named": "Nat" } },
+      { "name": "accepts", "sort": { "Named": "Nat" } },
+      { "name": "returns", "sort": { "Named": "Nat" } },
+      { "name": "maps", "sort": { "Named": "Nat" } }
+    ],
     "result": { "Named": "Nat" }
   }
 }
@@ -149,10 +173,11 @@ and receipt. It additionally requires:
 * a strict `LT distance 50000` proof; and
 * equality between the AST digest and receipt digest.
 
-These erased proof fields are mandatory at type checking. The module uses
-`%default total` and no postulates or proof escape hatches. The Rust type also
-keeps its constructor and fields private, and the wire encoder accepts no bare
-AST.
+All three proofs are mandatory at type checking. The quorum witness is retained
+at runtime for `quorumOf`; the drift and hash-binding proofs are erased. The
+module uses `%default total` and no postulates or proof escape hatches. The Rust
+type also keeps its constructor and fields private, and the wire encoder
+accepts no bare AST.
 
 == Licence
 

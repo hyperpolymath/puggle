@@ -3,7 +3,7 @@
 name = "puggle"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.85"
 description = "Isolated neurosymbolic auto-formalisation front-end for ECHIDNA"
 license = "MPL-2.0"
 repository = "https://github.com/hyperpolymath/puggle"
@@ -34,6 +34,9 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net",
 
 [build-dependencies]
 capnpc = "0.19"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 
 [lints.rust]
 unsafe_code = "forbid"

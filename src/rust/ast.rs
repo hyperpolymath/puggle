@@ -68,7 +68,13 @@ impl Sort {
         scope: &BTreeSet<String>,
     ) -> Result<(), AstError> {
         match self {
-            Self::Named(name) => validate_identifier(name, "sort"),
+            Self::Named(name) => {
+                validate_identifier(name, "sort")?;
+                if scope.contains(name) {
+                    return Err(AstError::ShadowedSortConstant(name.clone()));
+                }
+                Ok(())
+            }
             Self::Variable(name) => {
                 validate_identifier(name, "sort variable")?;
                 if target == TargetProver::Smt2 {
@@ -405,6 +411,8 @@ pub enum AstError {
     DuplicateBinder(String),
     #[error("unbound variable {0:?}")]
     UnboundVariable(String),
+    #[error("sort constant {0:?} is shadowed by an in-scope binder")]
+    ShadowedSortConstant(String),
     #[error("SMT-LIB 2 does not support dependent sort variables here")]
     UnsupportedDependentSort,
     #[error("SMT-LIB 2 declare-fun does not support higher-order sorts")]
@@ -441,6 +449,48 @@ mod tests {
         .expect("valid dependent signature");
         assert_eq!(ast.render(), "axiom identity (A : Type) (x : A) : A");
         assert_eq!(ast.digest().len(), 32);
+    }
+
+    #[test]
+    fn rejects_sort_constants_shadowed_by_prior_binders() {
+        for target in [TargetProver::Lean, TargetProver::Agda, TargetProver::Smt2] {
+            for sort in [
+                Sort::named("Nat"),
+                Sort::function(Sort::named("Nat"), Sort::named("Bool")),
+                Sort::function(Sort::named("Bool"), Sort::named("Nat")),
+            ] {
+                if target == TargetProver::Smt2 && matches!(sort, Sort::Function(..)) {
+                    continue;
+                }
+                let bindings = vec![Binding::new("Nat", Sort::named("Type"))];
+                assert_eq!(
+                    FormalAst::new(target, "bad", bindings.clone(), sort.clone()),
+                    Err(AstError::ShadowedSortConstant("Nat".to_owned()))
+                );
+                let mut bindings = bindings;
+                bindings.push(Binding::new("x", sort));
+                assert_eq!(
+                    FormalAst::new(target, "bad", bindings, Sort::named("Bool")),
+                    Err(AstError::ShadowedSortConstant("Nat".to_owned()))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn later_and_current_binders_do_not_shadow_earlier_sorts() {
+        for target in [TargetProver::Lean, TargetProver::Agda, TargetProver::Smt2] {
+            FormalAst::new(
+                target,
+                "valid",
+                vec![
+                    Binding::new("x", Sort::named("Nat")),
+                    Binding::new("Nat", Sort::named("Nat")),
+                ],
+                Sort::named("Bool"),
+            )
+            .expect("Nat is a constant until its binder enters scope");
+        }
     }
 
     #[test]

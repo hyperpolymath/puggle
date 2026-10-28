@@ -73,14 +73,15 @@ record ConsensusReceipt where
 ||| * a majority quorum for these exact acceptor/node counts;
 ||| * a distance strictly below 0.05 for this exact receipt; and
 ||| * equality between the candidate digest and the receipt's digest.
-||| Quantity-zero fields are erased at runtime but remain mandatory at type
+||| The quorum witness is retained for quorumOf. Quantity-zero semantic and
+||| hash-binding fields are erased at runtime but remain mandatory at type
 ||| checking. There is no constructor which takes only an AST and a receipt.
 public export
 record FrozenSpec where
   constructor MkFrozenSpec
   ast : FormalAst
   receipt : ConsensusReceipt
-  0 quorum : QuorumReached (acceptorCount receipt) (nodeCount receipt)
+  quorum : QuorumReached (acceptorCount receipt) (nodeCount receipt)
   0 semantic : LT (distanceMillionths receipt) driftThresholdMillionths
   0 hashBound : digest ast = astHash receipt
 
@@ -98,4 +99,4 @@ receiptOf signature = receipt signature
 public export
 quorumOf : (signature : FormalSignature) ->
   QuorumReached (acceptorCount (receiptOf signature)) (nodeCount (receiptOf signature))
-quorumOf (MkFrozenSpec _ _ proof _ _) = proof
+quorumOf (MkFrozenSpec _ _ witness _ _) = witness

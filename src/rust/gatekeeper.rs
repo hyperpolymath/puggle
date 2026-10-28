@@ -4,10 +4,12 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use thiserror::Error;
 use tokio::task::JoinSet;
+use tokio::time::timeout;
 
 use crate::ast::{AstError, FormalAst};
 use crate::paxos::{Consensus, Distance, DistanceError, PaxosCluster, PaxosError, Proposal};
@@ -15,6 +17,7 @@ use crate::paxos::{Consensus, Distance, DistanceError, PaxosCluster, PaxosError,
 const DEFAULT_INPUT_LIMIT: usize = 64 * 1024;
 const DEFORMALISATION_LIMIT: usize = 64 * 1024;
 const REPAIR_CONTEXT_LIMIT: usize = 2 * 1024;
+const AGENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 #[error("{message}")]
@@ -338,7 +341,10 @@ impl SemanticGatekeeper {
 
         for attempt in 0..self.max_attempts {
             let attempt = u32::try_from(attempt).map_err(|_| GatekeeperError::AttemptOverflow)?;
-            let rejection = match formaliser.formalise(&prompt).await {
+            let result = timeout(AGENT_TIMEOUT, formaliser.formalise(&prompt))
+                .await
+                .unwrap_or_else(|_| Err(AgentError::new("formaliser timed out")));
+            let rejection = match result {
                 Ok(ast) => match self.audit_candidate_at(original, ast, attempt).await {
                     Ok(frozen) => return Ok(frozen),
                     Err(rejection) => rejection,
@@ -390,7 +396,9 @@ impl SemanticGatekeeper {
         for (agent, deformaliser) in self.deformalisers.iter().cloned().enumerate() {
             let candidate = ast.clone();
             tasks.spawn(async move {
-                let result = deformaliser.deformalise(&candidate).await;
+                let result = timeout(AGENT_TIMEOUT, deformaliser.deformalise(&candidate))
+                    .await
+                    .unwrap_or_else(|_| Err(AgentError::new("deformaliser timed out")));
                 (agent, result)
             });
         }
@@ -642,6 +650,7 @@ pub enum GatekeeperError {
 
 #[cfg(test)]
 mod tests {
+    use std::future::pending;
     use std::sync::Mutex;
 
     use super::*;
@@ -750,6 +759,122 @@ mod tests {
                 Ok("unrelated linear algebra".to_owned())
             }
         }
+    }
+
+    struct PendingAgent;
+
+    #[async_trait]
+    impl Formaliser for PendingAgent {
+        async fn formalise(&self, _prompt: &str) -> Result<FormalAst, AgentError> {
+            pending().await
+        }
+    }
+
+    #[async_trait]
+    impl Deformaliser for PendingAgent {
+        async fn deformalise(&self, _ast: &FormalAst) -> Result<String, AgentError> {
+            pending().await
+        }
+    }
+
+    struct TimeoutFormaliser {
+        prompts: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl Formaliser for TimeoutFormaliser {
+        async fn formalise(&self, prompt: &str) -> Result<FormalAst, AgentError> {
+            let first = {
+                let mut prompts = self.prompts.lock().expect("prompt lock");
+                prompts.push(prompt.to_owned());
+                prompts.len() == 1
+            };
+            if first {
+                pending().await
+            } else {
+                Ok(ast("repaired"))
+            }
+        }
+    }
+
+    struct TimeoutRepairAgent(String);
+
+    #[async_trait]
+    impl Deformaliser for TimeoutRepairAgent {
+        async fn deformalise(&self, ast: &FormalAst) -> Result<String, AgentError> {
+            if ast.name() == "repaired" {
+                Ok(self.0.clone())
+            } else {
+                pending().await
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn formaliser_timeouts_exhaust_the_attempt_budget() {
+        let gatekeeper = gatekeeper(&["intent"; 3], 2);
+        let start = tokio::time::Instant::now();
+        let error = timeout(AGENT_TIMEOUT * 3, gatekeeper.run("intent", &PendingAgent))
+            .await
+            .expect("attempts must finish within the timeout budget")
+            .expect_err("a pending formaliser cannot freeze");
+        assert!(matches!(
+            error,
+            GatekeeperError::AttemptsExhausted { attempts: 2, last_rejection: Some(reason) }
+                if reason == "formaliser timed out"
+        ));
+        assert!(start.elapsed() >= AGENT_TIMEOUT * 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn formaliser_timeout_repairs_and_retries() {
+        let gatekeeper = gatekeeper(&["intent"; 3], 2);
+        let formaliser = TimeoutFormaliser {
+            prompts: Mutex::new(Vec::new()),
+        };
+        let frozen = timeout(AGENT_TIMEOUT * 3, gatekeeper.run("intent", &formaliser))
+            .await
+            .expect("run must finish")
+            .expect("second attempt succeeds");
+        assert_eq!(frozen.attempt(), 1);
+        let prompts = formaliser.prompts.lock().expect("prompt lock");
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("formaliser timed out"));
+        assert!(prompts[1].starts_with("intent"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn one_deformaliser_timeout_rejects_the_candidate() {
+        let mut gatekeeper = gatekeeper(&["intent"; 3], 1);
+        gatekeeper.deformalisers[0] = Arc::new(PendingAgent);
+        let error = timeout(
+            AGENT_TIMEOUT * 2,
+            gatekeeper.audit_candidate("intent", ast("operation")),
+        )
+        .await
+        .expect("audit must finish")
+        .expect_err("one missing observation prevents freezing");
+        assert!(
+            matches!(error, CandidateRejection::Agent(error) if error.to_string() == "deformaliser timed out")
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deformaliser_timeout_repairs_and_retries() {
+        let mut gatekeeper = gatekeeper(&["intent"; 3], 2);
+        gatekeeper.deformalisers[0] = Arc::new(TimeoutRepairAgent("intent".to_owned()));
+        let formaliser = SequenceFormaliser {
+            prompts: Mutex::new(Vec::new()),
+        };
+        let frozen = timeout(AGENT_TIMEOUT * 3, gatekeeper.run("intent", &formaliser))
+            .await
+            .expect("run must finish")
+            .expect("second attempt succeeds");
+        assert_eq!(frozen.attempt(), 1);
+        let prompts = formaliser.prompts.lock().expect("prompt lock");
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("deformaliser timed out"));
+        assert!(prompts[1].starts_with("intent"));
     }
 
     #[tokio::test]
