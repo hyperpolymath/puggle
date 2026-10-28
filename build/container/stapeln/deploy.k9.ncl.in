@@ -1,6 +1,6 @@
 K9!
 # SPDX-License-Identifier: MPL-2.0
-# deploy.k9.ncl — {{PROJECT_NAME}} deployment component (Hunt level)
+# deploy.k9.ncl — Puggle deployment component (Hunt level)
 #
 # k9-svc deployment component, K9 contract v1.0.0 (D173). Shipped as
 # deploy.k9.ncl.in because a template is not a component: `just repo-init`
@@ -25,9 +25,9 @@ K9!
     component_type = "deployment",
 
     metadata = {
-      name = "{{SERVICE_NAME}}-deploy",
-      version = "{{VERSION}}",
-      description = "{{PROJECT_NAME}} deployment component (Hunt level)",
+      name = "puggle-deploy",
+      version = "0.1.0",
+      description = "Puggle deployment component (Hunt level)",
     },
 
     # Target environment (extension field; contract §5.5).
@@ -66,9 +66,9 @@ K9!
 
     side_effects = [
       "spawns build/container/stapeln/ct-build.sh, which builds the image and packs and signs a .ctp bundle beside it",
-      "pulls and pushes {{REGISTRY}}/{{SERVICE_NAME}} images",
-      "starts, updates and stops the {{SERVICE_NAME}} stack with selur-compose, else podman compose over build/container/compose.yaml",
-      "publishes the service on port {{PORT}}",
+      "pulls and pushes ghcr.io/hyperpolymath/puggle images",
+      "starts, updates and stops the puggle stack with selur-compose, else podman compose over build/container/compose.yaml",
+      "publishes the service on port 3000",
     ],
 
     # Ed25519, presence only (K9-S009). The signing step adds payload_hash
@@ -105,8 +105,8 @@ K9!
 
     # Container configuration
     container = {
-      image = "{{REGISTRY}}/{{SERVICE_NAME}}",
-      port = {{PORT}},
+      image = "ghcr.io/hyperpolymath/puggle",
+      port = 3000,
       health_check = "/health",
       readiness_check = "/ready",
     },
@@ -125,7 +125,7 @@ K9!
     pre_deploy = m%"
 #!/bin/sh
 set -eu
-echo "K9: Pre-deployment validation for {{SERVICE_NAME}}..."
+echo "K9: Pre-deployment validation for puggle..."
 cd build/container/stapeln
 if command -v selur-compose >/dev/null 2>&1; then
   selur-compose verify
@@ -140,7 +140,7 @@ echo "K9: Validation passed."
 #!/bin/sh
 set -eu
 ENV="${1:-dev}"
-echo "K9: Deploying {{SERVICE_NAME}} to $ENV environment..."
+echo "K9: Deploying puggle to $ENV environment..."
 cd build/container/stapeln
 ./ct-build.sh
 if command -v selur-compose >/dev/null 2>&1; then
@@ -155,7 +155,7 @@ echo "K9: Deployment to $ENV complete."
     rollback = m%"
 #!/bin/sh
 set -eu
-echo "K9: Rolling back {{SERVICE_NAME}} deployment..."
+echo "K9: Rolling back puggle deployment..."
 cd build/container/stapeln
 if command -v selur-compose >/dev/null 2>&1; then
   selur-compose down

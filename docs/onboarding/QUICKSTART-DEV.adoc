@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 // Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 // Template: QUICKSTART-DEV.adoc — clone → build → test → PR
-// Replace rsr-template-repo, {{BUILD_CMD}}, {{TEST_CMD}}, {{LANG_STACK}} with actuals
+// Replace rsr-template-repo, cargo build --locked, cargo test --locked, Rust 2021 (Rust 1.82 or newer); Idris2 for the handoff ABI contract. with actuals
 = rsr-template-repo — Quick Start for Developers
 :toc:
 :toclevels: 2
 
 == Tech Stack
 
-{{LANG_STACK}}
+Rust 2021 (Rust 1.82 or newer); Idris2 for the handoff ABI contract.
 
 == Set Up Development Environment
 
@@ -32,14 +32,14 @@ just setup-dev
 
 [source,bash]
 ----
-{{BUILD_CMD}}
+cargo build --locked
 ----
 
 == Test
 
 [source,bash]
 ----
-{{TEST_CMD}}
+cargo test --locked
 ----
 
 == Project Structure
@@ -84,7 +84,7 @@ just panic-scan     # No new security issues
 Read `.machine_readable/MUST.contractile` before making changes.
 Key invariants that must never be violated:
 
-{{MUST_INVARIANTS}}
+Unknown or invalid tokens are masked; only valid ASTs are hashed; freezing requires a majority quorum and semantic drift strictly below 0.05; frozen handoffs remain outside ECHIDNA's TCB.
 
 == LLM/AI Agent Development
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-// Copyright (c) {{CURRENT_YEAR}} {{AUTHOR}} ({{OWNER}}) <{{AUTHOR_EMAIL}}>
+// Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
 //
-// Dev Container configuration for {{PROJECT_NAME}} — rootless Podman (default).
+// Dev Container configuration for Puggle — rootless Podman (default).
 // Works with: VS Code Dev Containers with `dev.containers.dockerPath` = podman,
 // and the devcontainer CLI (`devcontainer up --docker-path podman`).
 // Docker, GitHub Codespaces and Gitpod: use .devcontainer/docker/devcontainer.json
@@ -44,7 +44,7 @@
       }
     }
   },
-  "name": "{{PROJECT_NAME}} (Podman)",
+  "name": "Puggle (Podman)",
   "postCreateCommand": "just deps",
   "remoteUser": "nonroot",
   // Rootless Podman maps your host user to root inside the container, so the

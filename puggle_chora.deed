@@ -1,6 +1,6 @@
 ;; SPDX-License-Identifier: MPL-2.0
 ;
-; The repo deed of rsr-template-repo: one-deed-per-repo doctrine (standards#837,
+; The repo deed of Puggle (instantiated from rsr-template-repo): one-deed-per-repo doctrine (standards#837,
 ; owner ruling 2026-09-19, Option A). Folds the former ply manifest tree
 ; (82 per-directory manifests) and the family-7 AI allocation manifest
 ; into deed clauses.
@@ -16,9 +16,9 @@
 ; field; scripts/deed-clause.sh is the one writer.
 (repo-deed
   :schema-version "1.0.0"
-  :canonical-name "rsr-template-repo"
+  :canonical-name "puggle"
   :beholding-chora #u5"estate/chora"
-  :repo-uuid #u5"github.com/hyperpolymath/rsr-template-repo"
+  :repo-uuid #u5"github.com/hyperpolymath/puggle"
   ; The canon pin: which release of hyperpolymath/standards canon.lock this
   ; repo implements. It is the ONLY canon pin in this deed (deed_canon
   ; refuses zero or two); the (rsr-profile) clause below declares
@@ -38,38 +38,30 @@
     ; ORDER, not a rejected change: land the spine's adoption first, then the
     ; canon change is a one-line bump.
     :order "spine-adopts-then-canon-releases")
-  ; >>> repo-identity (repo-init replaces this block at mint)
-  ; The template's OWN identity. `just repo-init` swaps everything between
-  ; these two markers for build/templates/identity.deed.in, filled for the
-  ; new repo. Before that swap existed every minted repo inherited this
-  ; block's uuid and canonical-name and told arriving agents it WAS the
-  ; template (corrected in chronicles-of-slavia and scaffoldia 2026-07-16).
-  ; The uuid is not stored: it is uuid5(URL namespace, the header
-  ; :repo-uuid name). Only that typed name is written down; a hex form here
-  ; fails ADR-008's strict v8 gate.
-  ; Identity, clade, forges, lineage, status: mapping clade-to-repo-deed.
+  ; >>> repo-identity
+  ; Project identity from README.adoc, Cargo.toml and the PR's ECHIDNA boundary.
+  ; The clade describes the README's neurosymbolic purpose; registry enrolment is separate.
   (identity
     :primary-forge github
     :owner "hyperpolymath"
-    :prefixed-name "rm-rsr-template-repo")
+    :prefixed-name "ax-puggle")
   (clade
-    :primary rm
-    :primary-name "Repo Management & Tooling"
+    :primary ax
+    :primary-name "AI & Neurosymbolic"
     :secondary ()
-    :assigned "2026-03-16"
-    :rationale "Repo Management & Tooling (`rm`): the core value proposition is scaffolding repositories — CI/CD, AI manifests, ABI/FFI seams, governance — that other projects are instantiated from. `gv` was previously claimed as a secondary and is dropped: the template SHIPS governance files, but shipping them is not being a governance project. That authority lives in `standards` and `metadatastician-governance`. The inherited [\"gv\"] propagated into every repo created from this template, where it was even less meant.")
+    :assigned "2026-10-28"
+    :rationale "README.adoc defines a Type 6 neurosymbolic auto-formalisation front-end for ECHIDNA.")
   (forges
-    :github "hyperpolymath/rsr-template-repo"
-    :gitlab "hyperpolymath/rsr-template-repo"
-    :bitbucket "hyperpolymath/rsr-template-repo")
+    :github "hyperpolymath/puggle")
   (lineage
     :type standalone
     :parent ""
-    :born "2026-03-16"
-    :previous-names ())
+    :born "2026-10-28"
+    :previous-names ()
+    :instantiated-from "rsr-template-repo")
   (status
     :phase active
-    :since "2026-03-16"
+    :since "2026-10-28"
     :present #t
     :aliases ()
     :merged-into ""
@@ -77,33 +69,20 @@
     :successors ()
     :ended ""
     (history
-      (entry :phase active :since "2026-03-16" :note "the estate's canonical repository template; in production use")))
-  ; Maturity has its own clause (owner decision 2026-10-02; standards
-  ; 1-formats/deed/vocabulary/maturity.adoc). No :since: the date the
-  ; template reached production was never recorded. Milestones, next actions
-  ; and blockers live in docs/status/ROADMAP.adoc.
+      (entry :phase active :since "2026-10-28" :note "constrained formalisation pipeline implemented; verification limitations recorded in PR #2")))
   (maturity
-    :level production)
-  ; Ecosystem: mapping meta-ecosystem-to-repo-deed.
+    :level experimental
+    :since "2026-10-28")
   (ecosystem
-    :project "rsr-template-repo"
+    :project "puggle"
     :ecosystem "hyperpolymath"
-    :position-type "repository-template"
-    :purpose "Canonical RSR-compliant repository template: scaffolding (CI/CD, AI manifests, ABI/FFI standards, container ecosystem, governance) that new hyperpolymath projects are instantiated from."
-    :not ("a project in its own right"
-          "Scaffoldia (the full-featured repo designer)"
-          "standards (the canon source this template operationalises)")
-    :pipeline-position "foundation"
-    :chain "standards → rsr-template-repo → (every estate repo)"
-    :pipeline-notes "rsr-template-repo turns the RSR standard into runnable scaffolding. New repos are created from it via `just repo-init`, which substitutes the {{PLACEHOLDER}} tokens."
-    :coordination standards
-    (related :name "standards" :relationship standard-source :notes "Defines the RSR standard, contractile canon, and policies that this template operationalises.")
-    (related :name "stapeln" :relationship build-tooling :notes "Layer-based container build system; the template ships stapeln.toml scaffolding.")
-    (related :name "selur-compose" :relationship build-tooling :notes "Service composition; the template ships selur-compose.toml scaffolding.")
-    (related :name "k9-svc" :relationship validation-tooling :notes "Runs the self-validating k9.ncl checks (.machine_readable/self-validating/).")
-    (related :name "cerro-torre" :relationship signing-tooling :notes "Container/image signing provider referenced by the container scaffolding.")
-    (related :name "svalinn" :relationship verification-tooling :notes "Supply-chain verification referenced by the container scaffolding.")
-    (related :name "vordr" :relationship verification-tooling :notes "Build/artifact verification referenced by the container scaffolding."))
+    :position-type "auto-formalisation-front-end"
+    :purpose "Isolated neurosymbolic auto-formalisation front-end for ECHIDNA"
+    :not ("ECHIDNA's trusted proof checker" "a proof of informal/formal semantic equivalence" "the RSR repository template")
+    :pipeline-position "pre-verification"
+    :chain "informal input → Puggle → frozen signature handoff → ECHIDNA"
+    :coordination ECHIDNA
+    (related :name "rsr-template-repo" :relationship minted-from :notes "Inherited repository scaffolding; Puggle's implementation and README define its behavior."))
   ; <<< repo-identity
   ; Meta: mapping meta-ecosystem-to-repo-deed. A minted repo keeps this
   ; clause (self-name pass applied) and edits it as its own.
@@ -168,7 +147,7 @@
     (methodology :instructions-clause "bot-directives" :default-mode hybrid))
   (manifest
     :version "0.1.0"
-    :last-updated "{{CURRENT_DATE}}"
+    :last-updated "2026-10-28"
     :project "[YOUR-REPO-NAME]"
     :purpose "Canonical RSR (Rhodium Standard Repository) template — governance, CI/CD, machine-readable metadata, ABI/FFI seam and formal-verification scaffolding that hyperpolymath projects are instantiated from."
     (agent :name CLAUDE :role "proofs, compilers, repo-local implementation, CI/CD, formal verification, Rust/Idris2/Zig")
@@ -184,8 +163,8 @@
   (ply
     (directory :ply 1 :path ".github")
     (directory :id "machine-readable-pillar" :ply 1 :path ".machine_readable" :description "Registry for all machine-readable metadata, policies, and internal\nautomation scripts."
-      (canonical-locations :ai_configs "ai/" :anchor "rsr-template-repo_chora.deed (anchor)" :compliance "compliance/" :neurosym "rsr-template-repo_chora.deed (neurosym)" :playbook "rsr-template-repo_chora.deed (playbook)" :policies "rsr-template-repo_chora.deed (policies)" :scripts "scripts/")
-      :invariants ("Repo metadata MUST live in the repo deed (rsr-template-repo_chora.deed) and follow the DEED grammar" "Internal automation MUST live in scripts/ subfolder")
+      (canonical-locations :ai_configs "ai/" :anchor "puggle_chora.deed (anchor)" :compliance "compliance/" :neurosym "puggle_chora.deed (neurosym)" :playbook "puggle_chora.deed (playbook)" :policies "puggle_chora.deed (policies)" :scripts "scripts/")
+      :invariants ("Repo metadata MUST live in the repo deed (puggle_chora.deed) and follow the DEED grammar" "Internal automation MUST live in scripts/ subfolder")
       (directory :id "ai-registry" :ply 2 :path ".machine_readable/ai" :description "Sub-registry for ai metadata.")
       (directory :id "configs-registry" :ply 2 :path ".machine_readable/configs" :description "Sub-registry for configs metadata.")
       (directory :ply 0 :path ".machine_readable/descriptiles" :description "This manifest declares the AI-assistant context for the descriptiles machine-readable metadata directory."
@@ -307,7 +286,7 @@
   ; and the golden path. The CLAUDE.md arrival pack reads anchor/golden-path and hashes this clause (ANCHOR@…).
   (anchor
     :schema "hyperpolymath.anchor/1"
-    :repo "{{OWNER}}/{{REPO}}"
+    :repo "hyperpolymath/puggle"
     :authority "upstream-canonical"
     :purpose (
       "Define canonical semantics and policy boundaries for this repository."
@@ -316,13 +295,13 @@
       )
     (metadata
       :version "1.0.0"
-      :last-updated "{{CURRENT_DATE}}")
+      :last-updated "2026-10-28")
     (identity
-      :project "{{PROJECT_NAME}}"
+      :project "Puggle"
       ; language | library | service | tool
-      :kind "{{PROJECT_KIND}}"
-      :one-sentence "{{PROJECT_PURPOSE}}"
-      :domain "{{PROJECT_DOMAIN}}")
+      :kind "service"
+      :one-sentence "Isolated neurosymbolic auto-formalisation front-end for ECHIDNA"
+      :domain "neurosymbolic formalisation")
     (semantic-authority
       :policy "canonical"
       :owns (
@@ -477,7 +456,7 @@
     (methodology
       (metadata
         :version "1.0.0"
-        :last-updated "{{CURRENT_DATE}}"
+        :last-updated "2026-10-28"
         :spec "https://github.com/hyperpolymath/standards/blob/main/1-formats/a2ml/agentic/docs/ADR-002-methodology-layer.adoc")
       ; ============================================================================
       ; MODE SELECTION
@@ -521,7 +500,7 @@
         ; What makes this project special. Agents should DEEPEN this, not broaden it.
         ; Customise this per project — the template default is generic.
         (unique-strength
-          :description "{{PROJECT_UNIQUE_STRENGTH}}"
+          :description "Relationally constrained signatures with semantic round-trip auditing and quorum-gated handoff"
           :deepen-not-broaden #t)
         ; ============================================================================
         ; DIVERGENT INVARIANTS
@@ -560,7 +539,7 @@
         ; These rules detect corrupt/template/stale state files.
         (state-validation
           ; A regex, not a literal list. The list form named the exact strings it was
-          ; meant to catch ("{{PROJECT}}"), so `just repo-init` substituted the detector along
+          ; meant to catch ("PUGGLE"), so `just repo-init` substituted the detector along
           ; with everything else and shipped reject-if-contains = ["MY_PROJECT", ...] —
           ; a guard against unfilled tokens that had been eaten by the filling. The
           ; escaped pattern below contains no token for init to match, and covers every
@@ -579,7 +558,7 @@
     (coverage
       (metadata
         :version "1.0.0"
-        :last-updated "{{CURRENT_DATE}}")
+        :last-updated "2026-10-28")
       ; ============================================================================
       ; COVERAGE STATE
       ; ============================================================================
@@ -597,7 +576,7 @@
     (debt
       (metadata
         :version "1.0.0"
-        :last-updated "{{CURRENT_DATE}}"))
+        :last-updated "2026-10-28"))
     ; rra — directives for Robot Repo Automaton (RRA) enforcing the Platonic Ideal root.
     (rra
       :target "robot-repo-automaton"
@@ -612,7 +591,7 @@
         ; The pattern ".*" allows hidden dotfiles implicitly; RRA checks specific
         ; dotfile rules below.
         (allow-list
-          :files ("README.adoc" "CHANGELOG.adoc" "Justfile" "LICENSE" "rsr-template-repo_chora.deed" "CITATION.cff" "CLAUDE.md")
+          :files ("README.adoc" "CHANGELOG.adoc" "Justfile" "LICENSE" "puggle_chora.deed" "CITATION.cff" "CLAUDE.md")
           :patterns (".*"))
         ; Relocation rules: move heavy prose out of the root
         (relocations
@@ -710,8 +689,8 @@
     ; See: https://github.com/hyperpolymath/standards/tree/main/groove-protocol
     (groove
       :version "1.0"
-      ; Service identity — replace {{REPO}} with your project name
-      :service "{{REPO}}"
+      ; Service identity — replace puggle with your project name
+      :service "puggle"
       :service-version "0.1.0"
       ; Primary port — MUST be unique across the ecosystem. Check PORT-REGISTRY.md
       ; in the standards repo before assigning:
@@ -740,7 +719,7 @@
     (maintenance-axes
       (metadata
         :version "1.0.0"
-        :last-updated "{{CURRENT_DATE}}"
+        :last-updated "2026-10-28"
         :scope "repo")
       (discovery
         :human-entrypoints (

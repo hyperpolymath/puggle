@@ -3,7 +3,7 @@
 = ABI/FFI Standards
 {{~ Aditionally delete this line and fill out the template below ~}}
 
-== {{PROJECT}} ABI/FFI Documentation
+== PUGGLE ABI/FFI Documentation
 
 === Overview
 
@@ -264,7 +264,7 @@ gcc -o example example.c -l{{project}} -L./zig-out/lib
 
 [source,idris]
 ----
-import {{PROJECT}}.ABI.Foreign
+import PUGGLE.ABI.Foreign
 
 main : IO ()
 main = do
@@ -396,10 +396,10 @@ When modifying the ABI/FFI:
 
 === License
 
-{{LICENSE}}
+MPL-2.0
 
 === See Also
 
 - https://idris2.readthedocs.io[Idris2 Documentation]
 - https://ziglang.org/documentation/master/[Zig Documentation]
-- https://github.com/{{OWNER}}/rhodium-standard-repositories[Rhodium Standard Repositories]
+- https://github.com/hyperpolymath/rhodium-standard-repositories[Rhodium Standard Repositories]

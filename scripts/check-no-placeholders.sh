@@ -122,6 +122,23 @@ esac
 # Files that legitimately contain tokens after instantiation.
 ALLOWED=(
     ".machine_readable/ai/PLACEHOLDERS.adoc"   # the token vocabulary itself
+    # Inert generator inputs retained from the template. repo-init copies these
+    # into active paths BEFORE substitution and removes their source directories.
+    # Keep exact paths: active copies and unrelated .in files must still fail.
+    "archetypes/julia-library/overlay/.github/workflows/julia-ci.yml.in"
+    "archetypes/julia-library/overlay/.github/workflows/julia-docs.yml.in"
+    "archetypes/julia-library/overlay/Project.toml.in"
+    "archetypes/julia-library/overlay/src/PACKAGE.jl.in"
+    "archetypes/julia-library/overlay/test/cases/smoke.jl"
+    "archetypes/julia-library/overlay/test/runtests.jl"
+    "build/docs-seed/README.adoc"
+    "build/docs-seed/architecture.adoc"
+    "build/docs-seed/contributing.adoc"
+    "build/docs-seed/decisions/0001-template.adoc"
+    "build/docs-seed/troubleshooting.adoc"
+    "build/docs-seed/usage.adoc"
+    "build/templates/ROADMAP.adoc.in"
+    "build/templates/identity.deed.in"
     "EXPLAINME.adoc"                           # prose explaining that tokens exist
     "scripts/check-no-placeholders.sh"         # this file (the pattern above)
 )
