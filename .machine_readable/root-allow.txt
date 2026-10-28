@@ -32,7 +32,7 @@ LICENSE.adoc               # the licence (MPL-2.0); renamed from LICENSE to the 
 LICENSES/                  # REUSE licence texts, dual-licence model (code MPL-2.0 / docs CC-BY-SA-4.0)
 CHANGELOG.adoc             # AsciiDoc is the estate-standard documentation format
 CITATION.cff               # citation metadata; GitHub reads it from the root of the default branch only
-rsr-template-repo_chora.deed # the repo deed: universal AI entry point; family-7 allocation manifest + ply tree folded in (standards#837 pilot). Filename carries the repo slug (deed dispatch <stem>_chora.deed), so repo-init renames it at mint
+puggle_chora.deed          # Puggle repo deed; read by the canon gate and arrival-pack generator
 CLAUDE.md                  # generated arrival pack; the generator, pre-commit and Claude Code all read it from the ROOT (do not hand-edit; edit the repo deed)
 ?GEMINI.md                # pointer to CLAUDE.md for repos without AGENTS.md yet
 Justfile                   # thin; delegates phases to build/just/*.just
@@ -85,3 +85,9 @@ tests/
 ?REQUIRES_INITIALISATION.md  # written by the minting process, removed once `just repo-init` runs
 ?Project.toml              # julia-library archetype: Pkg reads the package manifest from the package root only
 ?test/                     # julia-library archetype: Pkg.test runs test/runtests.jl, a fixed path (the spine keeps tests/)
+
+# Puggle Rust package and its Capn Proto handoff (Cargo reads these at package root).
+Cargo.toml                 # package manifest; paths target src/rust/
+Cargo.lock                 # committed dependency resolution for reproducible --locked builds
+build.rs                   # Cargo build script invokes capnpc for the handoff schema
+schemas/                   # Capn Proto schema shared by the Rust encoder and ECHIDNA boundary

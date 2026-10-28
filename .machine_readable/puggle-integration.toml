@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MPL-2.0
+schema = 1
+project = "Puggle"
+architecture = "Kautz Type 6: Neural[Symbolic]"
+wire_schema = "schemas/puggle_handoff.capnp"
+abi_module = "src/abi/PuggleABI.idr"
+upstream = "ECHIDNA"
+tcb_member = false
+failure_policy = "fail-closed"
+hash = "BLAKE3"
+semantic_drift_threshold_millionths = 50000
+quorum_sizes = [3, 5]

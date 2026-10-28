@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MPL-2.0
 #
-# {{PROJECT_NAME}} — portable compose stack (Tier B)
+# Puggle — portable compose stack (Tier B)
 #
 # This is the runtime-agnostic, OCI compose-spec file. It works unchanged with:
 #   podman compose  -f build/container/compose.yaml up -d
@@ -21,23 +21,23 @@
     # ──────────────────────────────────────────────────────────────────────
     # Primary application service
     # ──────────────────────────────────────────────────────────────────────
-    "{{SERVICE_NAME}}": {
+    puggle: {
       build: {
         context: "..",
         dockerfile: "build/container/Containerfile",
       },
-      image: "{{REGISTRY}}/{{SERVICE_NAME}}:latest",
+      image: "ghcr.io/hyperpolymath/puggle:latest",
       ports: [
-        "{{PORT}}:{{PORT}}",
+        "3000:3000",
       ],
       environment: {
         APP_HOST: "[::]",
-        APP_PORT: "{{PORT}}",
+        APP_PORT: "3000",
         APP_LOG_FORMAT: "json",
         APP_DATA_DIR: "/data",
       },
       volumes: [
-        "{{SERVICE_NAME}}-data:/data",
+        "puggle-data:/data",
       ],
       restart: "unless-stopped",
       healthcheck: {
@@ -45,7 +45,7 @@
           "CMD",
           "curl",
           "-sf",
-          "http://localhost:{{PORT}}/health",
+          "http://localhost:3000/health",
         ],
         interval: "30s",
         timeout: "5s",
@@ -61,7 +61,7 @@
     rokur: {
       image: "ghcr.io/hyperpolymath/rokur:latest",
       environment: {
-        ROKUR_BACKEND: "http://{{SERVICE_NAME}}:{{PORT}}",
+        ROKUR_BACKEND: "http://puggle:3000",
         ROKUR_LISTEN: "[::]:8081",
         ROKUR_REQUIRED_SECRETS: "", # comma-separated env names that MUST be set
         ROKUR_AUDIT_LOG: "/var/log/rokur/audit.jsonl",
@@ -74,7 +74,7 @@
         "rokur-audit:/var/log/rokur",
       ],
       depends_on: {
-        "{{SERVICE_NAME}}": {
+        puggle: {
           condition: "service_healthy",
         },
       },
@@ -128,7 +128,7 @@
     },
   },
   volumes: {
-    "{{SERVICE_NAME}}-data": null,
+    puggle-data: null,
     rokur-audit: null,
   },
 }

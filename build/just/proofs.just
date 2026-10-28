@@ -18,9 +18,10 @@ proof-check-all: proof-check-idris2 proof-check-lean4 proof-check-agda proof-che
 # manifest (verification/proofs/<prover>/MANIFEST) is an error. See the script
 # header for the four "checks that could not fail" this replaces.
 
-# Check Idris2 proofs (per MANIFEST; fatal if idris2 absent)
+# Check Idris2 proofs (per MANIFEST plus the Puggle handoff ABI; fatal if idris2 absent)
 proof-check-idris2:
     @bash scripts/check-proofs.sh idris2
+    @idris2 --typecheck src/abi/puggle-abi.ipkg
 
 # Check Lean4 proofs (per MANIFEST; fatal if lean absent)
 proof-check-lean4:

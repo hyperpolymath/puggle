@@ -97,6 +97,14 @@ predecessors did.
 | optional
 | estate docs gate (standards scripts/check-docs-presence.sh) requires CONTRIBUTING at the ROOT; this is the copy it verifies
 
+| `Cargo.lock`
+| yes
+| committed dependency resolution for reproducible --locked builds
+
+| `Cargo.toml`
+| yes
+| package manifest; paths target src/rust/
+
 | `Justfile`
 | yes
 | thin; delegates phases to build/just/*.just
@@ -128,6 +136,10 @@ predecessors did.
 | `build/`
 | yes
 | build orchestration: just/ phase modules, container/, docs-seed/, templates/, guix.scm (canon 1.2.1 guix-primary template_ref = build/)
+
+| `build.rs`
+| yes
+| Cargo build script invokes capnpc for the handoff schema
 
 | `ci/`
 | yes
@@ -161,9 +173,13 @@ predecessors did.
 | yes
 | the toolchain: every tool at latest (PROVISIONING-STANDARD §4)
 
-| `rsr-template-repo_chora.deed`
+| `puggle_chora.deed`
 | yes
-| the repo deed: universal AI entry point; family-7 allocation manifest + ply tree folded in (standards#837 pilot). Filename carries the repo slug (deed dispatch <stem>_chora.deed), so repo-init renames it at mint
+| Puggle repo deed; read by the canon gate and arrival-pack generator
+
+| `schemas/`
+| yes
+| Capn Proto schema shared by the Rust encoder and ECHIDNA boundary
 
 | `scripts/`
 | yes

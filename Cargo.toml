@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: MPL-2.0
+[package]
+name = "puggle"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Isolated neurosymbolic auto-formalisation front-end for ECHIDNA"
+license = "MPL-2.0"
+repository = "https://github.com/hyperpolymath/puggle"
+build = "build.rs"
+
+[lib]
+name = "puggle"
+path = "src/rust/lib.rs"
+
+[[bin]]
+name = "puggle"
+path = "src/rust/main.rs"
+
+[features]
+default = []
+candle = ["dep:candle-core"]
+
+[dependencies]
+async-trait = "0.1"
+axum = "0.8"
+blake3 = "1.8"
+capnp = "0.19"
+candle-core = { version = "0.9.1", optional = true, default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "signal", "time"] }
+
+[build-dependencies]
+capnpc = "0.19"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

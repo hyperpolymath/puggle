@@ -703,6 +703,35 @@ cloak:
         echo "Dotfiles are natively cloaked on this OS. No action required."
     fi
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# PUGGLE — constrained decoding and fail-closed ECHIDNA handoff
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Build Puggle (requires Rust and the Cap'n Proto compiler)
+puggle-build:
+    cargo build --locked
+
+# Run the relational decoder, Paxos, RTT, AST, and wire tests
+puggle-test:
+    cargo test --locked
+
+# Check formatting and lint every default-feature target
+puggle-check:
+    cargo fmt --check
+    cargo clippy --all-targets --locked -- -D warnings
+
+# Check the optional Candle adapter explicitly
+puggle-check-candle:
+    cargo check --locked --features candle
+
+# Typecheck the total Idris2 handoff contract
+puggle-abi-check:
+    idris2 --typecheck src/abi/puggle-abi.ipkg
+
+# Start the HTTP boundary on 0.0.0.0:3000 (override with PUGGLE_ADDR)
+puggle-run:
+    cargo run --locked -- serve
+
 # Reveal dotfiles in Windows Explorer; on POSIX, explain the native mechanism.
 uncloak:
     #!/usr/bin/env bash

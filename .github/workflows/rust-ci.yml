@@ -30,6 +30,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install the Cap'n Proto schema compiler
+        run: |
+          set -euo pipefail
+          if [ -f Cargo.toml ]; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends capnproto
+            capnp --version
+          fi
+
       - name: Compile standalone Rust helpers and run tests
         run: |
           set -euo pipefail

@@ -39,7 +39,7 @@ function assertSortedKeys(value, path = "devcontainer") {
 assertSortedKeys(config);
 console.log("PASS: object keys are sorted recursively");
 
-assert.equal(config.name, "{{PROJECT_NAME}} (Podman)", "retain the mintable Podman profile name");
+assert.equal(config.name, "Puggle (Podman)", "retain the Puggle Podman profile name");
 assert.deepEqual(config.build, { context: "..", dockerfile: "Containerfile" });
 assert.equal(resolve(directory, config.build.context), repo, "build context must be the repository root");
 assert.ok(readFileSync(resolve(directory, config.build.dockerfile), "utf8").length > 0,

@@ -1,0 +1,9 @@
+-- SPDX-License-Identifier: MPL-2.0
+package puggle-abi
+
+version = 0.1.0
+authors = "hyperpolymath"
+brief = "Fail-closed Puggle to ECHIDNA handoff contract"
+sourcedir = "."
+depends = base
+modules = PuggleABI

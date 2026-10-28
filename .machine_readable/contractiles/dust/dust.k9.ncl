@@ -159,7 +159,7 @@ let base    = import "../_base.ncl" in
         description = "No references to rsr-template-repo in generic template files",
         probe = "test -z \"$(grep -r 'rsr-template-repo' machine-readable-design/ 2>/dev/null)\"",
         severity = 'warning,
-        notes = "Generic templates should use {{PROJECT_NAME}} or similar placeholders",
+        notes = "Generic templates should use Puggle or similar placeholders",
       },
       {
         id = "version-sync-checked",

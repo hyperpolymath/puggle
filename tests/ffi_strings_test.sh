@@ -14,7 +14,7 @@ if command -v mise >/dev/null 2>&1; then
   zig_bin=$(mise which zig 2>/dev/null || printf '%s' "$zig_bin")
 fi
 cp -R "$repo/src/interface/ffi" "$work/ffi"
-sed -i -e 's/{{project}}/test_project/g' -e 's/{{PROJECT}}/TEST_PROJECT/g' \
+sed -i -e 's/{{project}}/test_project/g' -e 's/PUGGLE/TEST_PROJECT/g' \
   "$work/ffi/build.zig" "$work/ffi/src/main.zig" "$work/ffi/test/integration_test.zig"
 # Tests share the production module so the private helper can be exercised
 # with the leak-detecting allocator without changing the public FFI surface.
