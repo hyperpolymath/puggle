@@ -75,7 +75,7 @@ workflows:
         - 'actions/attest-build-provenance@v4.2.2'
         - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v7.0.2'
-        - 'softprops/action-gh-release@v3.0.3'
+        - 'softprops/action-gh-release@v3.0.4'
     '.github/workflows/rsr-compliance-canary.yml':
         - 'actions/checkout@v7.0.1'
     '.github/workflows/rust-ci.yml':
@@ -90,7 +90,7 @@ workflows:
         - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
     '.github/workflows/sonarqube.yml':
         - 'actions/checkout@v7.0.1'
-        - 'sonarsource/sonarqube-scan-action@v8.4.0'
+        - 'sonarsource/sonarqube-scan-action@v8.4.1'
     '.github/workflows/squabble.yml': []
     '.github/workflows/static-analysis-gate.yml':
         - 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
@@ -210,13 +210,13 @@ dependencies:
         commit: 'sha1-0c5077e51419868618aeaa5fe8019c62421857d6'
         owner_id: 108928776
         repo_id: 512644635
-    'softprops/action-gh-release@v3.0.3':
-        ref: 'v3.0.3'
-        commit: 'sha1-efb35369e0ad2afab669f228072c1b0d510eae64'
+    'softprops/action-gh-release@v3.0.4':
+        ref: 'v3.0.4'
+        commit: 'sha1-8a0cd651e5b2365bd640854a3fa5dfc70e4875f3'
         owner_id: 2242
         repo_id: 204253808
-    'sonarsource/sonarqube-scan-action@v8.4.0':
-        ref: 'v8.4.0'
-        commit: 'sha1-4d1dc0c91ee400dcf8a6dddf2f705ac36542e304'
+    'sonarsource/sonarqube-scan-action@v8.4.1':
+        ref: 'v8.4.1'
+        commit: 'sha1-e805d875275f728fac1885b413934be6d7c63f65'
         owner_id: 545988
         repo_id: 366408409
