@@ -7,10 +7,7 @@ use crate::ast::TargetProver;
 use crate::gatekeeper::FrozenSpec;
 use crate::paxos::DRIFT_THRESHOLD_MILLIONTHS;
 
-#[allow(clippy::all, clippy::pedantic)]
-pub mod puggle_handoff_capnp {
-    include!(concat!(env!("OUT_DIR"), "/puggle_handoff_capnp.rs"));
-}
+pub use puggle_handoff::puggle_handoff_capnp;
 
 /// Encode an already frozen value. There is intentionally no encoder accepting
 /// a bare AST or caller-supplied receipt.
