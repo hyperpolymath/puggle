@@ -2,7 +2,7 @@
 schema = 1
 project = "Puggle"
 architecture = "Kautz Type 6: Neural[Symbolic]"
-wire_schema = "schemas/puggle_handoff.capnp"
+wire_schema = "crates/puggle-handoff/schemas/puggle_handoff.capnp"
 abi_module = "src/abi/PuggleABI.idr"
 upstream = "ECHIDNA"
 tcb_member = false

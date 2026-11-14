@@ -103,7 +103,7 @@ predecessors did.
 
 | `Cargo.toml`
 | yes
-| package manifest; paths target src/rust/
+| package manifest and workspace root; paths target src/rust/
 
 | `Justfile`
 | yes
@@ -137,10 +137,6 @@ predecessors did.
 | yes
 | build orchestration: just/ phase modules, container/, docs-seed/, templates/, guix.scm (canon 1.2.1 guix-primary template_ref = build/)
 
-| `build.rs`
-| yes
-| Cargo build script invokes capnpc for the handoff schema
-
 | `ci/`
 | yes
 | .gitlab-ci.yml + .pre-commit-config.yaml; ci/README.adoc records the out-of-band GitLab project setting these require
@@ -148,6 +144,10 @@ predecessors did.
 | `coordination.k9.ncl`
 | yes
 | repo-local session binding (template-mandated)
+
+| `crates/`
+| yes
+| workspace member puggle-handoff: Capn Proto schema, build.rs and the generated bindings (the only crate that allows unsafe)
 
 | `docs/`
 | yes
@@ -176,10 +176,6 @@ predecessors did.
 | `puggle_chora.deed`
 | yes
 | Puggle repo deed; read by the canon gate and arrival-pack generator
-
-| `schemas/`
-| yes
-| Capn Proto schema shared by the Rust encoder and ECHIDNA boundary
 
 | `scripts/`
 | yes
