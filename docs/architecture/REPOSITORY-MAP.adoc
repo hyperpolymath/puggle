@@ -232,7 +232,6 @@ your own repo - but do not read their emptiness as neglect here.
 | `docs/governance/planning/could/`
 | `docs/governance/planning/must/`
 | `docs/governance/planning/should/`
-| `docs/reports/compliance/`
 | `docs/reports/maintenance/`
 | `docs/reports/performance/`
 | `docs/reports/quality/`
