@@ -7,8 +7,8 @@ rust-version = "1.85"
 description = "Generated Cap'n Proto bindings for the one-way Puggle to ECHIDNA handoff"
 license = "MPL-2.0"
 repository = "https://github.com/hyperpolymath/puggle"
+keywords = ["capnp", "wire-format", "handoff"]
 build = "build.rs"
-publish = false
 
 [lib]
 name = "puggle_handoff"
