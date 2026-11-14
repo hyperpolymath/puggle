@@ -6,6 +6,10 @@ name: Workflow Security Linter
 
 on:
   push:
+    # A PR push already runs this through pull_request; push runs only on
+    # main, so each PR push is linted once and main is still checked after merge.
+    branches:
+      - main
     paths:
       - '.github/workflows/**'
   pull_request:
@@ -38,7 +42,7 @@ jobs:
             [ -f "$file" ] || continue
             # actions-lock may prepend its own comment. Require the licence
             # in the leading comment block, before the workflow body.
-            if ! awk '/^# SPDX-License-Identifier:/ { found=1 } /^[^#[:space:]]/ { exit } END { exit !found }' "$file"; then
+            if ! awk '/^# SPDX-License-Identifier:/ { found=1 } /^[[:space:]]*[^#[:space:]]/ { exit } END { exit !found }' "$file"; then
               echo "ERROR: $file missing SPDX header"
               failed=1
             fi

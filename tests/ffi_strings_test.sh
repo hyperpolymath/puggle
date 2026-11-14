@@ -16,6 +16,18 @@ fi
 cp -R "$repo/src/interface/ffi" "$work/ffi"
 sed -i -e 's/{{project}}/test_project/g' -e 's/PUGGLE/TEST_PROJECT/g' \
   "$work/ffi/build.zig" "$work/ffi/src/main.zig" "$work/ffi/test/integration_test.zig"
+# A minted repository has its own export prefix where the template has the
+# token; map that prefix too, so the appended tests name the same functions.
+# Only the exported symbols are renamed: a slug such as `root` must not turn
+# Zig's `.root_module` into `.test_project_module`.
+prefix=$(sed -nE 's/^export fn ([a-z0-9_]+)_init\(\).*/\1/p' "$work/ffi/src/main.zig" | head -1)
+[[ -n "$prefix" ]] || { echo 'FAIL: no `export fn <prefix>_init()` in src/interface/ffi/src/main.zig' >&2; exit 1; }
+if [[ "$prefix" != test_project ]]; then
+  while IFS= read -r sym; do
+    sed -i -E "s/\\b${prefix}_${sym}\\b/test_project_${sym}/g" \
+      "$work/ffi/build.zig" "$work/ffi/src/main.zig" "$work/ffi/test/integration_test.zig"
+  done < <(sed -nE "s/^export fn ${prefix}_([a-z0-9_]+)\\(.*/\\1/p" "$work/ffi/src/main.zig")
+fi
 # Tests share the production module so the private helper can be exercised
 # with the leak-detecting allocator without changing the public FFI surface.
 cat >> "$work/ffi/src/main.zig" <<'ZIG'

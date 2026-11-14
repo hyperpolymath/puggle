@@ -3,6 +3,7 @@
 # Unit controls for the formatter added in PR #253 (Mike Farah yq 4.53.3+).
 # Usage: bash tests/workflows/kyaml_format_test.sh
 set -euo pipefail
+yq --version 2>&1 | grep -q mikefarah || { echo "FAIL: this test needs Mike Farah yq (Go, 4.53.3+); the yq on PATH is a different tool" >&2; exit 1; }
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

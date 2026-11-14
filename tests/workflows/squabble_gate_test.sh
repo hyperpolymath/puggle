@@ -123,6 +123,7 @@ on:
       - 'src/**'
 jobs:
   scan:
+    name: scan / gitleaks
     runs-on: ubuntu-latest
     steps:
       - run: echo hi
@@ -139,6 +140,7 @@ on:
   pull_request:
 jobs:
   scan:
+    name: scan / gitleaks
     runs-on: ubuntu-latest
     steps:
       - run: echo hi
@@ -175,6 +177,7 @@ name: Secret Scanner
 on: [push, pull_request]
 jobs:
   scan:
+    name: scan / gitleaks
     runs-on: ubuntu-latest
     steps:
       - run: echo hi
@@ -281,13 +284,96 @@ fresh_context() {
   rm -rf "$context_tree"
   mkdir -p "$context_tree/.github/workflows" "$context_tree/.machine_readable"
   printf '# mapping\r\n\r\n scan / gitleaks => .github/workflows/scan.yaml \r\n' > "$context_tree/.machine_readable/required-contexts-allow.txt"
-  printf 'name: Scan\non: pull_request\njobs: {}\n' > "$context_tree/.github/workflows/scan.yaml"
+  printf 'name: Scan\non: pull_request\njobs:\n  gitleaks:\n    name: scan / gitleaks\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
 }
 fresh_context
 assert_rc 0 'scalar PR event, yaml extension, comments, CRLF, and whitespace are accepted' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
-printf 'name: Scan\non: pull_request_target\njobs: {}\n' > "$context_tree/.github/workflows/scan.yaml"
+sed -i 's|name: scan / gitleaks|name: scan / renamed|' "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a renamed job no longer produces the required context' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs: {}\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a PR-triggered workflow with no jobs produces no context' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  gitleaks:\n    name: scan / gitleaks\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a job with neither runs-on nor uses produces no context' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+# A job that calls a reusable workflow produces `<caller> / <called job>`,
+# never its own name alone; a remote reusable cannot be certified from here.
+printf 'name: Inner\non: workflow_call\njobs:\n  g:\n    name: gitleaks\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/inner.yaml"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    uses: ./.github/workflows/inner.yaml\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 0 'a local reusable produces <caller> / <called job>' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    name: scan / gitleaks\n    uses: ./.github/workflows/inner.yaml\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a reusable caller named like the context does not produce it' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    name: scan / gitleaks\n    uses: example/repo/.github/workflows/inner.yaml@0123456789012345678901234567890123456789\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a remote reusable produces nothing the gate can certify' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+# GitHub names matrix runs `name (v1, v2)`, or evaluates a name that refers to
+# the matrix; anything the gate cannot expand statically is refused, by name.
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    name: scan\n    strategy: {matrix: {tool: [gitleaks, trufflehog]}}\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
+printf 'scan (gitleaks) => .github/workflows/scan.yaml\n' > "$context_tree/.machine_readable/required-contexts-allow.txt"
+assert_rc 0 'a literal matrix names its runs `name (value)`' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    name: scan / ${{ matrix.tool }}\n    strategy: {matrix: {tool: [gitleaks]}}\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
+printf 'scan / gitleaks => .github/workflows/scan.yaml\n' > "$context_tree/.machine_readable/required-contexts-allow.txt"
+assert_rc 0 'a name that refers to the matrix is evaluated per run' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    name: scan / ${{ matrix.tool }}\n    strategy: {matrix: {tool: [gitleaks], include: [{tool: trufflehog}]}}\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a matrix with include is refused, not guessed' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+cp "$WORK/out" "$WORK/refusal"
+assert_rc 0 'the include refusal names the job and says why' grep -q "not resolvable statically.*scan / \${{ matrix.tool }}" "$WORK/refusal"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    name: scan / ${{ matrix.tool }}\n    strategy:\n      matrix: ${{ fromJSON(vars.TOOLS) }}\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a computed matrix is refused, not guessed' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+cp "$WORK/out" "$WORK/refusal"
+assert_rc 0 'the computed-matrix refusal names the job and says why' grep -q "not resolvable statically.*scan / \${{ matrix.tool }}" "$WORK/refusal"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    name: scan / ${{ matrix.tool }}\n    strategy: {matrix: {TOOL: [gitleaks]}}\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 0 'matrix property names match case-insensitively' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    name: scan / ${{ matrix.tool }}\n    strategy: {matrix: {TOOL: [gitleaks], tool: [trufflehog]}}\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'keys differing only in case are refused as ambiguous' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    name: scan / ${{ matrix.1tool }}\n    strategy: {matrix: {1tool: [gitleaks]}}\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a dereference GitHub rejects (matrix.1tool) is refused' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+# A called file counts only when it declares on: workflow_call; GitHub nests
+# at most ten workflows (the caller and nine reusables); a cycle is refused.
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    uses: ./.github/workflows/inner.yaml\n' > "$context_tree/.github/workflows/scan.yaml"
+printf 'name: Inner\non: push\njobs:\n  g:\n    name: gitleaks\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/inner.yaml"
+assert_rc 1 'a called file without on: workflow_call produces nothing' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+chain_tree() { # <reusables>: scan.yaml calls r1 ... rN; the last runs job gitleaks
+    local n=$1 i ctx=scan
+    printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    uses: ./.github/workflows/r1.yaml\n' > "$context_tree/.github/workflows/scan.yaml"
+    for ((i = 1; i < n; i++)); do
+        printf 'name: R\non: workflow_call\njobs:\n  l%d:\n    uses: ./.github/workflows/r%d.yaml\n' "$i" "$((i + 1))" > "$context_tree/.github/workflows/r$i.yaml"
+        ctx="$ctx / l$i"
+    done
+    printf 'name: R\non: workflow_call\njobs:\n  g:\n    name: gitleaks\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/r$n.yaml"
+    printf '%s / gitleaks => .github/workflows/scan.yaml\n' "$ctx" > "$context_tree/.machine_readable/required-contexts-allow.txt"
+}
+chain_tree 9
+assert_rc 0 'nine nested reusables (ten workflows) resolve' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+chain_tree 10
+assert_rc 1 'a tenth nested reusable exceeds GitHub'"'"'s limit' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+rm -f "$context_tree"/.github/workflows/r*.yaml
+printf 'name: Scan\non: [pull_request, workflow_call]\njobs:\n  scan:\n    uses: ./.github/workflows/scan.yaml\n' > "$context_tree/.github/workflows/scan.yaml"
+printf 'scan / scan => .github/workflows/scan.yaml\n' > "$context_tree/.machine_readable/required-contexts-allow.txt"
+assert_rc 1 'a workflow calling itself is refused, not followed' timeout 20 bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Inner\non: workflow_call\njobs:\n  g:\n    name: gitleaks\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/inner.yaml"
+printf 'scan / gitleaks => .github/workflows/scan.yaml\n' > "$context_tree/.machine_readable/required-contexts-allow.txt"
+# `$/.github/workflows/…` is GitHub's recommended same-repository form, and a
+# caller with a literal matrix produces `<caller run> / <called job>`.
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    uses: $/.github/workflows/inner.yaml\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 0 'a $/ same-repository call resolves like ./' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    uses: $/.github/workflows/inner.yaml@v1\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a $/ call with an @ref (which GitHub forbids) produces nothing' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    strategy: {matrix: {target: [dev, prod]}}\n    uses: ./.github/workflows/inner.yaml\n' > "$context_tree/.github/workflows/scan.yaml"
+printf 'scan (prod) / gitleaks => .github/workflows/scan.yaml\n' > "$context_tree/.machine_readable/required-contexts-allow.txt"
+assert_rc 0 'a matrix caller produces <caller run> / <called job>' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+# GitHub runs only files directly in .github/workflows/: a subdirectory or a
+# traversal is not a reusable workflow, whatever file it reaches.
+mkdir -p "$context_tree/.github/workflows/sub"
+cp "$context_tree/.github/workflows/inner.yaml" "$context_tree/.github/workflows/sub/inner.yaml"
+printf 'scan / gitleaks => .github/workflows/scan.yaml\n' > "$context_tree/.machine_readable/required-contexts-allow.txt"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    uses: ./.github/workflows/sub/inner.yaml\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a reusable in a subdirectory of .github/workflows produces nothing' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+printf 'name: Scan\non: pull_request\njobs:\n  scan:\n    uses: ./.github/workflows/sub/../inner.yaml\n' > "$context_tree/.github/workflows/scan.yaml"
+assert_rc 1 'a traversal in a reusable path produces nothing' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
+rm -r "$context_tree/.github/workflows/sub"
+printf 'scan / gitleaks => .github/workflows/scan.yaml\n' > "$context_tree/.machine_readable/required-contexts-allow.txt"
+rm "$context_tree/.github/workflows/inner.yaml"
+printf 'name: Scan\non: pull_request_target\njobs:\n  gitleaks:\n    name: scan / gitleaks\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
 assert_rc 1 'pull_request_target alone cannot produce a required PR check' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
-printf 'name: Scan\non:\n  pull_request:\n    paths-ignore: []\njobs: {}\n' > "$context_tree/.github/workflows/scan.yaml"
+printf 'name: Scan\non:\n  pull_request:\n    paths-ignore: []\njobs:\n  gitleaks:\n    name: scan / gitleaks\n    runs-on: ubuntu-latest\n    steps: [{run: echo hi}]\n' > "$context_tree/.github/workflows/scan.yaml"
 assert_rc 1 'paths-ignore is forbidden even when empty' bash "$REPO_ROOT/scripts/check-required-contexts.sh" "$context_tree"
 for mapping in '# only comments' 'missing separator' ' => .github/workflows/scan.yaml' \
   'scan / gitleaks =>' 'scan => file => another'; do

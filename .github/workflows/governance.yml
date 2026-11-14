@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 # Self-contained execution of the shared estate governance policies pinned to
-# metadatastician/standards@8e48b1caade08a552646adeab66558ac43b4360d
+# metadatastician/standards@f0b3cd4c464d33e1584f8528c17bce104555e256
 # (replacing the retired runtime-policy.yml workflow per PR #244).
 jobs:
   governance:
@@ -26,7 +26,7 @@ jobs:
     permissions:
       contents: read
     env:
-      STANDARDS_PIN: '8e48b1caade08a552646adeab66558ac43b4360d'
+      STANDARDS_PIN: 'f0b3cd4c464d33e1584f8528c17bce104555e256'
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: metadatastician/standards
-          ref: 8e48b1caade08a552646adeab66558ac43b4360d
+          ref: f0b3cd4c464d33e1584f8528c17bce104555e256
           path: .standards-checkout
           sparse-checkout: |
             scripts
@@ -48,17 +48,16 @@ jobs:
       - name: Enforce TypeScript and npm/yarn runtime policy
         run: |
           set -euo pipefail
-          if [ -f .standards-checkout/scripts/check-ts-allowlist.sh ]; then
-            bash .standards-checkout/scripts/check-ts-allowlist.sh
-          fi
-          rm -rf .standards-checkout
-
-          bad_ts="$(git ls-files '*.ts' '*.tsx' | grep -vE '^(archetypes/|templates/|tests/fixtures/)' || true)"
-          if [ -n "$bad_ts" ]; then
-            echo "::error::Unallowlisted TypeScript files detected:"
-            printf '%s\n' "$bad_ts"
+          # The pinned script is the sole TypeScript verdict: it honours the
+          # builtin allowlist, .claude/CLAUDE.md exemptions and
+          # .governance-allowlist. A second inline filter here would disagree
+          # with it. A missing script is a failure, never a silent skip.
+          test -f .standards-checkout/scripts/check-ts-allowlist.sh || {
+            echo "::error::Pinned check-ts-allowlist.sh missing at $STANDARDS_PIN"
             exit 1
-          fi
+          }
+          bash .standards-checkout/scripts/check-ts-allowlist.sh
+          rm -rf .standards-checkout
 
           bad_locks="$(git ls-files 'package-lock.json' '**/package-lock.json' 'yarn.lock' '**/yarn.lock' 'pnpm-lock.yaml' '**/pnpm-lock.yaml' || true)"
           if [ -n "$bad_locks" ]; then

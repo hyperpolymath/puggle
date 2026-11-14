@@ -91,8 +91,16 @@ log_pass "Template cloned to $TEST_REPO_PATH"
 # Local ignored agent state is not part of the template product. A filesystem
 # copy sees it anyway, unlike a real GitHub-template instantiation, and can make
 # the placeholder gate judge unrelated nested worktrees. Remove it from the
-# fixture before exercising the mint.
-rm -rf "$TEST_REPO_PATH/.claude"
+# fixture before exercising the mint. Remove only the IGNORED paths: tracked
+# files there (.claude/settings.json, .claude/hooks/) are template content, and
+# dropping them gives a tree that matches no template commit.
+git -C "$TEMPLATE_ROOT" ls-files -z --others --ignored --exclude-standard --directory -- .claude \
+    | (cd "$TEST_REPO_PATH" && xargs -0 -r rm -rf --)
+CLEAN_STATUS=("${PIPESTATUS[@]}")
+if [ "${CLEAN_STATUS[0]}" -ne 0 ] || [ "${CLEAN_STATUS[1]}" -ne 0 ]; then
+    log_error "could not remove ignored .claude/ state from the fixture"
+    exit 1
+fi
 
 # Remove .git directory for clean state, then re-init as the INSTANTIATED repo.
 #
@@ -208,6 +216,14 @@ fi
 if ! (cd "$TEST_REPO_PATH" && printf '%s\n' "${INIT_ANSWERS[@]}" | env "${PIN_ENV[@]}" just repo-init) > "$TEST_DIR/init.log" 2>&1; then
     log_error "just repo-init failed:"
     cat "$TEST_DIR/init.log" >&2
+    # The lane's verdict is one line in a 200-line log; the reason is the last
+    # few lines of init.log. Emit them as an annotation so the failure is
+    # legible where the failure is reported (PR check list, API, the log
+    # summary), not only to whoever downloads the raw log.
+    if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+        printf '::error title=just repo-init failed::%s\n' \
+            "$(tail -n 40 "$TEST_DIR/init.log" | awk '{printf "%s%%0A", $0}')"
+    fi
     exit 1
 fi
 
@@ -390,15 +406,18 @@ if [ -n "$A2ML_LEFT" ]; then
     exit 1
 fi
 log_pass "Mint carries no .a2ml file"
-# The template's identity must not survive into the mint: its clade, its
+# The template's identity must not survive into the mint: its clade (a mint
+# writes none: a clade placement is optional), its prefixed name, its
 # maturity, its uuid name, or an unfilled token.
 DEED_READ="$TEST_REPO_PATH/scripts/deed-field.sh"
 CHILD="$TEST_REPO_PATH/$CHILD_DEED"
-if [ "$(bash "$DEED_READ" "$CHILD" clade primary)" != "UNASSIGNED" ] \
+if bash "$DEED_READ" --has "$CHILD" clade \
+   || [[ -n "$(bash "$DEED_READ" "$CHILD" identity prefixed-name || true)" ]] \
    || [ "$(bash "$DEED_READ" "$CHILD" maturity level)" != "experimental" ] \
    || [ "$(bash "$DEED_READ" "$CHILD" status phase)" != "incubating" ] \
    || [ "$(bash "$DEED_READ" "$CHILD" ecosystem project)" != "$TEST_REPO_NAME" ] \
-   || [ "$(bash "$DEED_READ" "$CHILD" "" repo-uuid)" != "github.com/${TEST_OWNER}/${TEST_REPO_NAME}" ]; then
+   || [ "$(bash "$DEED_READ" --uuid "$CHILD")" != "$(bash "$TEST_REPO_PATH/scripts/uuid-v8.sh" chora-registry "github.com/${TEST_OWNER}/${TEST_REPO_NAME}")" ] \
+   || [ "$(bash "$DEED_READ" --typed "$CHILD" "" repo-uuid)" != "#uuid\"$(bash "$TEST_REPO_PATH/scripts/uuid-v8.sh" chora-registry "github.com/${TEST_OWNER}/${TEST_REPO_NAME}")\"" ]; then
     log_error "child deed still carries the template's identity, or lacks its own"
     exit 1
 fi

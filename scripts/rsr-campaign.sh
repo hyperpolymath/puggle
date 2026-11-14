@@ -347,8 +347,11 @@ for repo in "${SELECTED[@]}"; do
             # Name the actual tokens. A report that says "carries {{TOKEN}}"
             # whatever it found is a claim wider than its evidence, which is
             # the specific failure mode this estate keeps auditing itself for.
-            toks="$(grep -ohE '\{\{[A-Z_]+\}\}' "$src" 2>/dev/null \
-                    | grep -vE "^\{\{($META_TOKENS)\}\}$" | sort -u | tr '\n' ' ')"
+            # `|| true` on both greps: a file with no tokens (the usual case)
+            # makes grep exit 1, which pipefail and set -e turned into an exit
+            # of the whole campaign at the first ordinary file.
+            toks="$({ grep -ohE '\{\{[A-Z_]+\}\}' "$src" 2>/dev/null || true; } \
+                    | { grep -vE "^\{\{($META_TOKENS)\}\}$" || true; } | sort -u | tr '\n' ' ')"
             if [ -n "$toks" ]; then
                 # shellcheck disable=SC2086  # deliberate word split for -n
                 printf '%s\t%s\tREFUSED\tcarries unfilled token(s): %s\n' \

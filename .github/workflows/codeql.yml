@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
+      actions: read # upload-sarif calls get-a-workflow-run; private repos need this
       contents: read
       security-events: write
     strategy:

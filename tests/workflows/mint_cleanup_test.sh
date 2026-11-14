@@ -51,4 +51,20 @@ cmp "$fixture/cache/README.md" "$fixture/cache.before" || { echo 'FAIL: an unlis
 rc=0; bash "$repo/scripts/rust-tool.sh" strip-instruction-blocks "$fixture/cache" 2>/dev/null || rc=$?
 [ "$rc" -eq 2 ] || { echo "FAIL: a directory argument exited $rc, want 2" >&2; exit 1; }
 cmp "$fixture/cache/README.md" "$fixture/cache.before" || { echo 'FAIL: a refused directory was edited' >&2; exit 1; }
-echo 'PASS: selected ecosystems, nonempty updates, comment boundaries, idempotence, listed files only'
+# The compile cache is keyed by source content. Keyed by name with an mtime
+# check, a second checkout whose tool source is OLDER on disk than the cached
+# build ran the first checkout's binary. Two versions, one cache, v2 older:
+cache_dir="$fixture/tool-cache"
+for v in 1 2; do
+    mkdir -p "$fixture/co$v/scripts"
+    cp "$repo/scripts/rust-tool.sh" "$fixture/co$v/scripts/"
+    printf 'fn main() { println!("v%s"); }\n' "$v" > "$fixture/co$v/scripts/probe-tool.rs"
+done
+touch -d '2001-01-01' "$fixture/co2/scripts/probe-tool.rs"
+[ "$(RSR_MINT_TOOL_CACHE="$cache_dir" bash "$fixture/co1/scripts/rust-tool.sh" probe-tool)" = v1 ] \
+    || { echo 'FAIL: the first version did not run' >&2; exit 1; }
+[ "$(RSR_MINT_TOOL_CACHE="$cache_dir" bash "$fixture/co2/scripts/rust-tool.sh" probe-tool)" = v2 ] \
+    || { echo 'FAIL: an older-mtime source ran the cached binary of another version' >&2; exit 1; }
+[ "$(RSR_MINT_TOOL_CACHE="$cache_dir" bash "$fixture/co1/scripts/rust-tool.sh" probe-tool)" = v1 ] \
+    || { echo 'FAIL: the first version lost its own binary' >&2; exit 1; }
+echo 'PASS: selected ecosystems, nonempty updates, comment boundaries, idempotence, listed files only, content-keyed cache'

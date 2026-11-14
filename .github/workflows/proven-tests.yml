@@ -40,7 +40,7 @@ jobs:
           git -C "$RUNNER_TEMP/standards" remote add origin https://github.com/metadatastician/standards.git
           git -C "$RUNNER_TEMP/standards" config core.sparseCheckout true
           printf '1-formats/deed/\n1-formats/k9/\n' > "$RUNNER_TEMP/standards/.git/info/sparse-checkout"
-          git -C "$RUNNER_TEMP/standards" fetch -q --depth 1 origin 8e48b1caade08a552646adeab66558ac43b4360d
+          git -C "$RUNNER_TEMP/standards" fetch -q --depth 1 origin f0b3cd4c464d33e1584f8528c17bce104555e256
           git -C "$RUNNER_TEMP/standards" checkout -q FETCH_HEAD
 
       - name: Set up Bun

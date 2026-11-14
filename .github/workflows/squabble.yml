@@ -68,6 +68,13 @@ jobs:
           set -euo pipefail
           bash tests/workflows/squabble_gate_test.sh
           bash scripts/check-required-contexts.sh .
+          # squabble follows CROSS-repository CI edges. The verdict grid added
+          # edges of the same kind INSIDE this repository (workflow_run on a
+          # workflow's `name:`, artifacts read by name, per-tool pins shared
+          # between a producer and the reporter), and a rename of any of them
+          # fails silently: no red check, just an orange grid row forever.
+          # This is the local half of the same audit.
+          bash scripts/check-workflow-edges.sh .
 
       - name: Install pinned & SLSA-attested squabble v0.1.0
         id: install

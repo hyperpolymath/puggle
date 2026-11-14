@@ -117,7 +117,7 @@ for port in 1 65535; do
     assert_value "$minted" '.services."demo-api".ports' "[\"$port:$port\"]" 'boundary port mapping'
     assert_value "$minted" '.services."demo-api".environment.APP_PORT' "\"$port\"" 'minted port remains a string'
     assert_value "$minted" '.services."demo-api".healthcheck.test' "[\"CMD\",\"curl\",\"-sf\",\"http://localhost:$port/health\"]" 'minted health URL'
-    assert_value "$minted" '.services.rokur.environment.ROKUR_BACKEND' "\"http://demo-api:$port\"" 'minted proxy backend'
+    assert_value "$minted" '.services.rokur.environment.ROKUR_BACKEND' "\"http://demo-api:$port\"" 'minted proxy backend' # NOSONAR shell:S5332: asserts an in-network compose backend URL fixture
     assert_value "$minted" '.services.rokur.depends_on."demo-api".condition' '"service_healthy"' 'minted dependency key'
     # A lookup alone also returns null for a missing key. Check membership
     # before its null value so a deleted volume declaration cannot pass.
@@ -127,6 +127,29 @@ for port in 1 65535; do
     assert_value "$scratch/.gatekeeper.yaml" '.trust.trusted_signers' '[{"key_id":"demo-api-release","algorithm":"Ed25519","public_key_file":"/etc/svalinn/keys/demo-api-release.pub"}]' 'minted signer identity and key path without extra trusted signers'
 done
 echo 'PASS: container-init substitutions preserve service references and string ports at 1 and 65535'
+
+# Both recipes refuse a value before writing anything when it would make an
+# image reference container tooling rejects. Each refused value is a mutant
+# of an accepted one, so a check that accepts everything fails here.
+check_values() { bash "$repo/scripts/format-container-kyaml.sh" --check-values "$@" 2>/dev/null; }
+for registry in ghcr.io/acme localhost:5000/team host:65535/team registry.example.com '[2001:db8::1]:5000/team' '[::1]/x' '[::]' '[1:2:3:4:5:6:7:8]' '[1:2:3:4:5:6::8]'; do
+    check_values demo-api 8080 "$registry" || fail "registry '$registry' was refused"
+done
+for registry in / ghcr.io/Acme host:bad-port ghcr.io//acme ghcr.io/ '[]' '[2001:db8::1' '2001:db8::1:5000/team' '[g::1]' '[::1]:' 'ghcr.io/a|b' host:0/team host:65536/team '[::1]:70000/team' \
+    '[::::]:5000/team' '[1::2::3]/team' '[:1::2]' '[1::2:]' '[1:2:3]' '[1:2:3:4:5:6:7:8:9]' '[1::2:3:4:5:6:7:8]' '[12345::1]'; do
+    ! check_values demo-api 8080 "$registry" || fail "registry '$registry' was accepted"
+done
+# The service name is also a bare TOML key and a hostname, so it is a DNS
+# label: a dot would nest stapeln/compose.toml's table, an underscore is no
+# hostname, and a label is at most 63 characters.
+long63=$(printf 'a%.0s' {1..63})
+for name in demo-api a a1 "$long63"; do check_values "$name" 8080 ghcr.io/acme || fail "service name '$name' was refused"; done
+for name in Demo-Api -api api- a.b a_b a__b 'a b' 'a"b' '' "${long63}a"; do ! check_values "$name" 8080 ghcr.io/acme || fail "service name '$name' was accepted"; done
+for port in 0 65536 08x ''; do ! check_values demo-api "$port" ghcr.io/acme || fail "port '$port' was accepted"; done
+sed -e 's|{{SERVICE_NAME}}|demo-api|g' -e 's|{{PORT}}|8080|g' \
+    -e 's|{{REGISTRY}}|[2001:db8::1]:5000/team|g' "$template" > "$scratch/compose-v6.yaml"
+assert_value "$scratch/compose-v6.yaml" '.services."demo-api".image' '"[2001:db8::1]:5000/team/demo-api:latest"' 'bracketed IPv6 registry substitution'
+echo 'PASS: --check-values accepts DNS-label service names and image-prefix registries (IPv6 included) and refuses malformed values'
 
 assert_value "$policy" '.version' '"1.0"' 'policy version remains a string'
 assert_value "$policy" '.auth.public' '[{"path":"/health","methods":["GET"]},{"path":"/ready","methods":["GET"]},{"path":"/metrics","methods":["GET"]}]' 'public probes require GET'

@@ -196,9 +196,14 @@ let base    = import "../_base.ncl" in
       {
         id = "container-images-pinned",
         section = "Container Security",
-        description = "Containerfile uses pinned base images",
-        probe = "test ! -f Containerfile || grep -q 'cgr.dev\\|@sha256:' Containerfile",
-        severity = 'warning,
+        description = "Every base image in a shipped Containerfile is pinned by digest",
+        # The old probe was: test ! -f Containerfile || grep -q 'cgr.dev\|@sha256:' Containerfile
+        # which passes on `FROM cgr.dev/chainguard/wolfi-base:latest` — it asked
+        # "is one of the approved registries named anywhere", not "is every base
+        # image pinned". A template shipping two floating :latest stages passed
+        # it in every repo minted from it. The probe now runs the shipped check.
+        probe = "bash scripts/check-container-pins.sh --quiet",
+        severity = 'critical,
       },
       {
         id = "no-dockerfile",

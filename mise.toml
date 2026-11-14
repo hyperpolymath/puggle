@@ -18,5 +18,7 @@ lockfile = true
 [tools]
 just = "latest"
 shellcheck = "latest"
+yq = "latest"             # scripts/kyaml-format.sh (KYAML configs)
 trivy = "latest"          # just deps-audit
 zig = "latest"
+rust = "latest"           # the crate (Cargo.toml); mise.lock needs `just toolchain-refresh`
