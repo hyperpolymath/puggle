@@ -107,8 +107,14 @@ fi
 # basename remains as the last fallback for a checkout with no remote.
 REPO_NAME="${GITHUB_REPOSITORY:-}"
 if [ -z "$REPO_NAME" ]; then
-    REPO_NAME="$(git -C "$REPO_ROOT" config --get remote.origin.url 2>/dev/null \
-                 | sed -E 's#(\.git)?/?$##; s#^.*[:/]([^/]+/[^/]+)$#\1#')"
+    # `|| true` is load-bearing: a repository with NO origin remote (a fresh
+    # `git init` + commit, which is exactly what `just repo-init` produces
+    # before the first push) makes `git config` exit 1, and with `set -e` +
+    # `pipefail` that killed the whole gate — exit 1, no output, no finding.
+    # Measured on a minted tree that had no remote yet: the gate failed silently
+    # and looked like a token leak to anyone reading the exit code.
+    REPO_NAME="$( { git -C "$REPO_ROOT" config --get remote.origin.url 2>/dev/null \
+                 | sed -E 's#(\.git)?/?$##; s#^.*[:/]([^/]+/[^/]+)$#\1#' ; } || true )"
 fi
 [ -z "$REPO_NAME" ] && REPO_NAME="$(cd "$REPO_ROOT" && basename "$(pwd)")"
 case "$REPO_NAME" in

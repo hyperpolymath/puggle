@@ -11,7 +11,11 @@
 #   3. Semver update is `patch` or `minor` (never `major`).
 #
 # Never invokes `--admin`: GitHub's native `--auto` waits for all required
-# status checks and code-scanning rulesets to pass (`squabble != bypass`).
+# status checks, reviews and code-scanning rulesets to pass (`squabble != bypass`).
+# Enabling auto-merge does not require submitting an approving review. Keep
+# any required review pending for a maintainer instead of depending on the
+# repository setting that permits GitHub Actions to approve pull requests.
+# The merge request must match the head commit that triggered this run.
 
 name: Dependabot Auto-Merge
 on:
@@ -22,7 +26,7 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 jobs:
   automerge:
     if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.user.id == 49699333
@@ -90,29 +94,21 @@ jobs:
             echo "ghsa=$GHSA_ID"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Approve PR (when fail-closed policy allows)
-        if: steps.policy.outputs.action == 'automerge'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GHSA_ID: ${{ steps.policy.outputs.ghsa }}
-          SEVERITY: ${{ steps.policy.outputs.severity }}
-          UPDATE_TYPE: ${{ steps.policy.outputs.update_type }}
-        run: |
-          gh pr review --approve "$PR_URL" \
-            --body "Auto-approving Dependabot security update (${GHSA_ID}, severity=${SEVERITY}, ${UPDATE_TYPE}). Policy: verified low/medium security patch/minor only."
-
       - name: Enable auto-merge (when fail-closed policy allows)
+        id: enable
         if: steps.policy.outputs.action == 'automerge'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          gh pr merge --auto --squash "$PR_URL"
+          gh pr merge --auto --squash --match-head-commit "$PR_HEAD_SHA" "$PR_URL"
 
       - name: Write decision to step summary
+        if: always()
         env:
           ACTION: ${{ steps.policy.outputs.action }}
+          MERGE_OUTCOME: ${{ steps.enable.outcome }}
           SEVERITY: ${{ steps.policy.outputs.severity }}
           REASON: ${{ steps.policy.outputs.reason }}
           UPDATE_TYPE: ${{ steps.policy.outputs.update_type }}
@@ -124,6 +120,7 @@ jobs:
             echo "| Field | Value |"
             echo "|-------|-------|"
             echo "| Policy action | \`${ACTION}\` |"
+            echo "| Auto-merge request | \`${MERGE_OUTCOME}\` |"
             echo "| Reason | ${REASON} |"
             echo "| Advisory severity | \`${SEVERITY}\` |"
             echo "| Update type | \`${UPDATE_TYPE}\` |"

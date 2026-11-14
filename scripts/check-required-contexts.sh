@@ -7,7 +7,8 @@
 #      .machine_readable/required-contexts-allow.txt (and any non-empty
 #      required_status_checks context in .github/rulesets/*.json) resolves to
 #      an existing workflow under .github/workflows/ that runs on pull_request
-#      without path-filtering that could strand a PR (#219 defect class).
+#      without path-filtering that could strand a PR (#219 defect class), and
+#      that has a job whose check-run name is exactly that context.
 #   2. No workflow in .github/workflows/ invokes an admin bypass (`gh pr merge
 #      --admin`) — enforcing cicd-squabbler's core `squabble != bypass`
 #      invariant statically alongside the runtime binary.
@@ -57,6 +58,93 @@ function fail(msg) {
   errors++;
 }
 
+/**
+ * Expand a job's name over a literal `strategy.matrix`, the way GitHub names
+ * the check runs: a name that references `matrix.<key>` is evaluated per
+ * combination; any other name gets the combination's values appended,
+ * `name (v1, v2)`. Returns null when that cannot be done statically:
+ * include/exclude, a computed matrix or value, or another expression in the
+ * name.
+ */
+function matrixNames(name, job) {
+  const matrix = job?.strategy?.matrix;
+  const exprs = [...name.matchAll(/\$\{\{\s*(.*?)\s*\}\}/g)].map((m) => m[1]);
+  if (matrix === undefined) return exprs.length === 0 ? [name] : null;
+  if (matrix === null || typeof matrix !== "object" || Array.isArray(matrix)) return null;
+  if ("include" in matrix || "exclude" in matrix) return null;
+  const keys = Object.keys(matrix);
+  // GitHub reads matrix property names case-insensitively.
+  const byLower = new Map(keys.map((k) => [k.toLowerCase(), k]));
+  const literal = (v) => v !== null && typeof v !== "object" && !String(v).includes("${{");
+  if (keys.length === 0 || byLower.size !== keys.length) return null;
+  if (keys.some((k) => !Array.isArray(matrix[k]) || !matrix[k].every(literal))) return null;
+  // A dot dereference needs a property starting with a letter or underscore.
+  const prop = /^matrix\.([A-Za-z_][A-Za-z0-9_-]*)$/;
+  if (exprs.some((e) => !prop.test(e) || !byLower.has(e.slice(7).toLowerCase()))) return null;
+  let combos = [{}];
+  for (const k of keys) combos = combos.flatMap((c) => matrix[k].map((v) => ({ ...c, [k]: String(v) })));
+  return combos.map((c) =>
+    exprs.length > 0
+      ? name.replace(/\$\{\{\s*matrix\.(.*?)\s*\}\}/g, (_, k) => c[byLower.get(k.toLowerCase())])
+      : `${name} (${keys.map((k) => c[k]).join(", ")})`);
+}
+
+/** Return the event names a parsed workflow triggers on. */
+function triggersOf(doc) {
+  const onBlock = doc?.on ?? doc?.true;
+  return typeof onBlock === "string"
+    ? [onBlock]
+    : Array.isArray(onBlock)
+      ? onBlock.map(String)
+      : onBlock && typeof onBlock === "object"
+        ? Object.keys(onBlock)
+        : [];
+}
+
+/**
+ * Return the check-run names a parsed workflow's jobs produce, adding to
+ * `unresolved` each job whose names cannot be known statically. A called
+ * file counts only when it declares `on: workflow_call`, as GitHub requires;
+ * GitHub nests at most ten workflows (the caller and nine reusables), and a
+ * call back into the chain is a cycle GitHub refuses. A same-repository call
+ * is spelled `./.github/workflows/…` or `$/.github/workflows/…`; a caller
+ * with a literal matrix produces one `<caller run> / <called job>` per run.
+ */
+function producedNames(doc, unresolved, chain = []) {
+  const jobs = doc?.jobs && typeof doc.jobs === "object" ? doc.jobs : {};
+  const names = [];
+  for (const [id, job] of Object.entries(jobs)) {
+    const name = String(job?.name ?? id);
+    const uses = typeof job?.uses === "string" ? job.uses : null;
+    // GitHub runs only files directly in .github/workflows/: no subdirectory,
+    // no traversal.
+    const local = uses?.match(/^[.$]\/(\.github\/workflows\/[^/@\\]+\.ya?ml)$/);
+    const expanded = matrixNames(name, job);
+    if (expanded === null) {
+      unresolved.push(name);
+    } else if (uses === null) {
+      // An ordinary job needs a runner; without `runs-on` GitHub creates no
+      // check run for it.
+      const runsOn = job?.["runs-on"];
+      if (runsOn !== undefined && runsOn !== null && runsOn !== "") names.push(...expanded);
+    } else if (local) {
+      const called = join(root, local[1]);
+      if (chain.includes(called) || chain.length >= 10) {
+        unresolved.push(name);
+        continue;
+      }
+      if (!existsSync(called)) continue;
+      const calledDoc = Bun.YAML.parse(readFileSync(called, "utf8"));
+      if (!triggersOf(calledDoc).includes("workflow_call")) continue;
+      const inners = producedNames(calledDoc, unresolved, [...chain, called]);
+      for (const caller of expanded) {
+        for (const inner of inners) names.push(`${caller} / ${inner}`);
+      }
+    }
+  }
+  return names;
+}
+
 // 1. Parse mapping file: "<context> => <.github/workflows/foo.yml>"
 const mapped = new Map();
 const lines = readFileSync(allowPath, "utf8").split(/\r?\n/);
@@ -102,15 +190,7 @@ for (const [ctx, relWf] of mapped.entries()) {
   }
   const doc = Bun.YAML.parse(readFileSync(fullWf, "utf8"));
   const onBlock = doc?.on ?? doc?.true;
-  const triggers =
-    typeof onBlock === "string"
-      ? [onBlock]
-      : Array.isArray(onBlock)
-        ? onBlock.map(String)
-        : onBlock && typeof onBlock === "object"
-          ? Object.keys(onBlock)
-          : [];
-  if (!triggers.includes("pull_request")) {
+  if (!triggersOf(doc).includes("pull_request")) {
     fail(`required context '${ctx}' producer '${relWf}' does not trigger on pull_request`);
     continue;
   }
@@ -122,6 +202,21 @@ for (const [ctx, relWf] of mapped.entries()) {
     if (Object.hasOwn(prCfg, "paths") || Object.hasOwn(prCfg, "paths-ignore")) {
       fail(`required context '${ctx}' producer '${relWf}' filters pull_request by paths — strands PRs that do not touch those paths`);
     }
+  }
+  // A job's check-run name is its `name:` (or its id when unnamed), expanded
+  // over a literal matrix. A job that calls a reusable workflow produces
+  // `<caller name> / <called job name>` instead, one per called job; a remote
+  // reusable cannot be read from here, so it produces nothing this gate can
+  // certify. Without a job of exactly the context's name the context is never
+  // produced, however the workflow is triggered; a job whose names cannot be
+  // known statically is named, never assumed to match.
+  const unresolved = [];
+  const checkNames = producedNames(doc, unresolved, [fullWf]);
+  if (!checkNames.includes(ctx)) {
+    const why = unresolved.length > 0
+      ? `; not resolvable statically (matrix include/exclude, computed values, or other expressions in the name): ${unresolved.join(", ")}`
+      : "";
+    fail(`required context '${ctx}' producer '${relWf}' has no job named '${ctx}' (jobs: ${checkNames.join(", ") || "none"})${why}`);
   }
 }
 

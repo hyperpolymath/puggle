@@ -1,8 +1,36 @@
 # This workflow is managed by gh actions-lock.
 # SPDX-License-Identifier: MPL-2.0
-# Static Analysis Gate — Deep recon & fleet-learning deposit.
-# Builds and caches pinned panic-attack, pons-asinorum, and Hypatia (OTP 27),
-# executes real scans without silent fallback, and deposits unified findings.
+# Static Analysis Gate — deep recon & fleet-learning deposit.
+# Builds and caches pinned panic-attack and pons-asinorum, executes real scans
+# without silent fallback, and deposits one evidence artifact for the verdict
+# grid.
+#
+# ── SCOPE (see the header of fork-governance.yml for the whole picture) ──────
+#
+# This workflow produces evidence; it does not render the verdict grid and it
+# does not run Hypatia. Until 2026-10 it ran Hypatia a second time (same pin,
+# different cache key, a second "fail on critical" gate, a differently-shaped
+# JSON) while .github/workflows/hypatia-scan.yml ran it too. Hypatia now runs
+# once, there. What is left here is what only this workflow does: panic-attack
+# assail, pons asinorum deep recon, and patch-bridge CVE triage.
+#
+# The evidence artifact (`static-analysis-findings`, read by fork-governance.yml)
+# carries each scanner's STATUS ENVELOPE, not a bare array:
+#
+#   { "status": "ran" | "not_run" | "error", "tool": "...", "ref": "<commit>",
+#     "reason": null | "<why>", "exit_code": 0 | <rc>, "report": {...} | null }
+#
+# A bare array cannot distinguish "ran clean" from "never ran", and the verdict
+# grid renders a scanner that did not run as orange, never as a clean scan. This
+# shape is the one metadatastician/standards docs/VERDICT-GRID-SPEC.adoc defines
+# and hypatia-scan-reusable.yml already writes, so adopting that reusable would
+# not change what the grid reads.
+#
+# GATES (owner ruling 2026-11-12): pons blocks on ERROR-level findings that it
+# does not itself call speculative; a pons that did not run, or produced no
+# readable report, also blocks (never a silent pass). panic-attack and
+# patch-bridge are advisory: they write their evidence and annotate but do not
+# fail the check. The verdict grid never gates.
 name: Static Analysis Gate
 on:
   pull_request:
@@ -14,6 +42,13 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+env:
+  # One pin per tool, estate-wide, for this repository. fork-governance.yml's
+  # verdict job names the same commits when it identifies this evidence, and
+  # scripts/check-workflow-edges.sh fails the CICD Squabbler gate when a tool is
+  # pinned at two different commits in two workflows.
+  PANIC_ATTACK_SHA: b5530834a839734d1d181bfe6edb0d43d4233cf4
+  PONS_SHA: 51b8920f541782ceb9465ea3f0d33c96104fc1fb
 jobs:
   # ---------------------------------------------------------------------------
   # Job 1: panic-attack assail + pons-asinorum deep recon
@@ -36,74 +71,125 @@ jobs:
           path: |
             ~/.cargo/bin/panic-attack
             ~/.cargo/bin/pons
-          key: deep-recon-v2-${{ runner.os }}-pa-b5530834a839-pons-51b8920f5417
+          key: deep-recon-v3-${{ runner.os }}-pa-${{ env.PANIC_ATTACK_SHA }}-pons-${{ env.PONS_SHA }}
 
       - name: Build pinned panic-attack & pons-asinorum when uncached
         if: steps.cache-recon.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          cargo install --locked \
+          cargo install --locked --force \
             --git https://github.com/hyperpolymath/panic-attack.git \
-            --rev b5530834a839734d1d181bfe6edb0d43d4233cf4
+            --rev "$PANIC_ATTACK_SHA"
           cargo install --locked \
             --git https://github.com/hyperpolymath/pons-asinorum.git \
-            --rev 51b8920f541782ceb9465ea3f0d33c96104fc1fb \
+            --rev "$PONS_SHA" \
             --bin pons
 
+      # Each scanner writes its envelope whichever way it ends, so the grid
+      # sees status "error" with the exit code and reason instead of an absent
+      # file that it could only call "not run".
       - name: Run panic-attack assail
         id: assail
+        # Advisory (owner ruling 2026-11-12): panic-attack does not gate. A failed
+        # or untrustworthy run still exits non-zero so the step shows as failed
+        # and the envelope says "error" (orange in the grid), but the job goes on.
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          set -uo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
           PA_RAW="$RUNNER_TEMP/pa-report.json"
           PA_LOG="$RUNNER_TEMP/pa-assail.log"
+          out=panic-attack-findings.json
           PA_EXIT=0
           panic-attack assail . --output "$PA_RAW" > "$PA_LOG" 2>&1 || PA_EXIT=$?
 
+          envelope() { # envelope STATUS REASON
+            jq -n --arg s "$1" --arg r "$2" --arg ref "$PANIC_ATTACK_SHA" --argjson rc "$PA_EXIT" \
+              --slurpfile doc "${3:-/dev/null}" \
+              '{status: $s, tool: "panic-attack", ref: $ref, reason: ($r | if . == "" then null else . end),
+                exit_code: $rc, report: (if ($doc | length) > 0 then $doc[0] else null end)}' > "$out"
+          }
+
           if [ "$PA_EXIT" -ne 0 ] || [ ! -s "$PA_RAW" ]; then
-            cat "$PA_LOG" >&2 || :
+            cat "$PA_LOG" >&2
+            envelope error "panic-attack assail failed or produced an empty report (exit ${PA_EXIT})"
             echo "::error::panic-attack assail failed or produced empty report (exit ${PA_EXIT})"
-            exit 1
-          fi
-
-          if ! jq -e 'type == "object" and (.weak_points | type == "array")' "$PA_RAW" >/dev/null 2>&1; then
-            cat "$PA_LOG" >&2 || :
+          elif ! jq -e 'type == "object" and (.weak_points | type == "array")' "$PA_RAW" >/dev/null 2>&1; then
+            cat "$PA_LOG" >&2
+            envelope error "panic-attack assail produced no valid AssailReport JSON object"
             echo "::error::panic-attack assail did not produce a valid AssailReport JSON object"
+          else
+            envelope ran "" "$PA_RAW"
+            # suppressed:true is panic-attack's own "likely false positive" mark;
+            # the grid does not count it either (VERDICT-GRID-SPEC §grading).
+            jq '[.weak_points[] | select(.suppressed != true) | .severity = ((.severity // "") | ascii_downcase)]' \
+              "$PA_RAW" > "$RUNNER_TEMP/pa-findings.json"
+            TOTAL=$(jq 'length' "$RUNNER_TEMP/pa-findings.json")
+            CRITICAL=$(jq '[.[] | select(.severity == "critical")] | length' "$RUNNER_TEMP/pa-findings.json")
+            HIGH=$(jq '[.[] | select(.severity == "high")] | length' "$RUNNER_TEMP/pa-findings.json")
+            MEDIUM=$(jq '[.[] | select(.severity == "medium" or .severity == "warn")] | length' "$RUNNER_TEMP/pa-findings.json")
+            LOW=$(jq '[.[] | select(.severity == "low")] | length' "$RUNNER_TEMP/pa-findings.json")
+            {
+              echo "total=$TOTAL"
+              echo "critical=$CRITICAL"
+              echo "high=$HIGH"
+              echo "medium=$MEDIUM"
+              echo "low=$LOW"
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo "## panic-attack assail"
+              echo ""
+              echo "| Severity | Count |"
+              echo "|----------|-------|"
+              echo "| Critical | ${CRITICAL} |"
+              echo "| High | ${HIGH} |"
+              echo "| Medium | ${MEDIUM} |"
+              echo "| Low | ${LOW} |"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          jq -e '.status | type == "string"' "$out" >/dev/null
+          if [ "$(jq -r .status "$out")" != "ran" ]; then
+            echo "::warning::panic-attack (advisory, does not gate) did not produce trustworthy results"
             exit 1
           fi
-
-          jq '[.weak_points[] | select(.suppressed != true) | .severity = ((.severity // "") | ascii_downcase)]' \
-            "$PA_RAW" > panic-attack-findings.json
-
-          TOTAL=$(jq '. | length' panic-attack-findings.json)
-          CRITICAL=$(jq '[.[] | select(.severity == "critical")] | length' panic-attack-findings.json)
-          HIGH=$(jq '[.[] | select(.severity == "high")] | length' panic-attack-findings.json)
-          MEDIUM=$(jq '[.[] | select(.severity == "medium" or .severity == "warn")] | length' panic-attack-findings.json)
-          LOW=$(jq '[.[] | select(.severity == "low")] | length' panic-attack-findings.json)
-
-          {
-            echo "total=$TOTAL"
-            echo "critical=$CRITICAL"
-            echo "high=$HIGH"
-            echo "medium=$MEDIUM"
-            echo "low=$LOW"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Run pons-asinorum deep recon audit
+        id: pons
+        # Gating (owner ruling 2026-11-12): deliberately no continue-on-error.
+        # Not-run, error and non-speculative ERROR findings all exit non-zero.
         run: |
-          set -euo pipefail
+          set -uo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
-          command -v pons >/dev/null 2>&1 || { echo "::error::pons binary not found on PATH"; exit 1; }
+          out=pons-findings.json
+          if ! command -v pons >/dev/null 2>&1; then
+            jq -n --arg ref "$PONS_SHA" \
+              '{status: "not_run", tool: "pons-asinorum", ref: $ref,
+                reason: "pons binary not found on PATH after the pinned build", exit_code: null, report: null}' > "$out"
+            echo "::error::pons binary not found on PATH"
+            exit 1
+          fi
           pons --version
           PONS_JSON="$RUNNER_TEMP/pons-report.json"
           PONS_LOG="$RUNNER_TEMP/pons.log"
           PONS_RC=0
           pons scan --format json . > "$PONS_JSON" 2> "$PONS_LOG" || PONS_RC=$?
+
+          envelope() { # envelope STATUS REASON
+            jq -n --arg s "$1" --arg r "$2" --arg ref "$PONS_SHA" --argjson rc "${PONS_RC:-0}" \
+              --slurpfile doc "${3:-/dev/null}" \
+              '{status: $s, tool: "pons-asinorum", ref: $ref, reason: ($r | if . == "" then null else . end),
+                exit_code: $rc, report: (if ($doc | length) > 0 then $doc[0] else null end)}' > "$out"
+          }
+
           if [ "$PONS_RC" -ne 0 ] || ! jq -e 'type == "object" and (.findings | type == "array")' "$PONS_JSON" >/dev/null 2>&1; then
-            cat "$PONS_LOG" >&2 || :
+            cat "$PONS_LOG" >&2
+            envelope error "pons scan failed (exit ${PONS_RC}) or produced no readable findings array"
             echo "::error::pons scan failed (exit ${PONS_RC})"
             exit 1
           fi
+          envelope ran "" "$PONS_JSON"
+          # ERROR counts only where pons itself does not call the finding
+          # speculative: a heuristic is never read as a proof.
           ERR_COUNT="$(jq '[.findings[] | select((.evidence // "" | ascii_upcase) != "SPECULATIVE" and (.severity // "" | ascii_upcase) == "ERROR")] | length' "$PONS_JSON")"
           WARN_COUNT="$(jq '[.findings[] | select((.severity // "" | ascii_upcase) == "WARN")] | length' "$PONS_JSON")"
           INFO_COUNT="$(jq '[.findings[] | select((.severity // "" | ascii_upcase) == "INFO")] | length' "$PONS_JSON")"
@@ -116,130 +202,31 @@ jobs:
             echo "| WARN | ${WARN_COUNT} |"
             echo "| INFO | ${INFO_COUNT} |"
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$ERR_COUNT" -ne 0 ]; then
+            echo "::error::pons found ${ERR_COUNT} non-speculative ERROR finding(s) - blocking merge"
+            exit 1
+          fi
 
-      - name: Upload panic-attack findings
+      - name: Upload the scanner envelopes
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: panic-attack-findings
-          path: panic-attack-findings.json
+          name: static-analysis-findings
+          path: |
+            panic-attack-findings.json
+            pons-findings.json
+          if-no-files-found: error
           retention-days: 90
 
-      - name: Fail on critical findings
+      - name: Warn on critical panic-attack findings (advisory)
         if: steps.assail.outputs.critical != '0' && steps.assail.outputs.critical != ''
         env:
           CRIT_COUNT: ${{ steps.assail.outputs.critical }}
         run: |
-          echo "::error::panic-attack found ${CRIT_COUNT} critical issue(s) — blocking merge"
-          exit 1
+          echo "::warning::panic-attack found ${CRIT_COUNT} critical issue(s) (advisory: panic-attack does not gate)"
 
   # ---------------------------------------------------------------------------
-  # Job 2: hypatia-scan (pinned Elixir 1.19.4 / OTP 28.3 + cached escript)
-  # ---------------------------------------------------------------------------
-  hypatia-scan:
-    name: Hypatia neurosymbolic scan
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup Elixir 1.19.4 / OTP 28.3 for Hypatia scanner
-        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
-        with:
-          elixir-version: '1.19.4'
-          otp-version: '28.3'
-
-      - name: Cache pinned Hypatia build
-        id: cache-hypatia
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/hypatia
-            ~/.hex
-            ~/.mix
-          key: hypatia-escript-${{ runner.os }}-otp28-elx1194-be98f74ce93df200752f3798efa1305bfa3e0e10
-
-      - name: Clone and build pinned Hypatia
-        id: build
-        run: |
-          set -euo pipefail
-          if [ ! -f "$HOME/hypatia/hypatia" ] && [ ! -f "$HOME/hypatia/hypatia-v2" ]; then
-            rm -rf "$HOME/hypatia"
-            git init -q "$HOME/hypatia"
-            git -C "$HOME/hypatia" remote add origin https://github.com/hyperpolymath/hypatia.git
-            git -C "$HOME/hypatia" fetch -q --depth 1 origin be98f74ce93df200752f3798efa1305bfa3e0e10
-            git -C "$HOME/hypatia" checkout -q FETCH_HEAD
-            (cd "$HOME/hypatia" && mix local.hex --force && mix local.rebar --force && mix deps.get && MIX_NO_PUBSUB=1 mix escript.build)
-          fi
-          echo "ready=true" >> "$GITHUB_OUTPUT"
-
-      - name: Run Hypatia scan
-        id: scan
-        if: steps.build.outputs.ready == 'true'
-        run: |
-          set +e
-          HYPATIA_FORMAT=json "$HOME/hypatia/hypatia-cli.sh" scan . --exit-zero > hypatia-findings.json
-          HYP_EXIT=$?
-          set -e
-
-          if [ "$HYP_EXIT" -ne 0 ]; then
-            echo "::error::Hypatia scanner execution failed with exit ${HYP_EXIT}"
-            exit "$HYP_EXIT"
-          fi
-          if [ ! -s hypatia-findings.json ] || ! jq -e 'type == "array"' hypatia-findings.json >/dev/null; then
-            echo "::error::Hypatia did not produce a valid JSON findings array"
-            exit 1
-          fi
-
-          TOTAL=$(jq '. | length' hypatia-findings.json)
-          CRITICAL=$(jq '[.[] | select(.severity == "critical")] | length' hypatia-findings.json)
-          HIGH=$(jq '[.[] | select(.severity == "high")] | length' hypatia-findings.json)
-          MEDIUM=$(jq '[.[] | select(.severity == "medium" or .severity == "warn")] | length' hypatia-findings.json)
-          LOW=$(jq '[.[] | select(.severity == "low")] | length' hypatia-findings.json)
-
-          {
-            echo "total=$TOTAL"
-            echo "critical=$CRITICAL"
-            echo "high=$HIGH"
-            echo "medium=$MEDIUM"
-            echo "low=$LOW"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Emit check annotations
-        if: steps.build.outputs.ready == 'true'
-        run: |
-          jq -r --arg ws "$GITHUB_WORKSPACE" '.[] | select(.file != null) |
-            (.file | ltrimstr($ws + "/")) as $f |
-            (.reason // .message // .type // "finding") as $m |
-            if .severity == "critical" then
-              "::error file=\($f),line=\(.line // 1)::[hypatia] \($m)"
-            elif .severity == "high" then
-              "::error file=\($f),line=\(.line // 1)::[hypatia] \($m)"
-            else
-              "::warning file=\($f),line=\(.line // 1)::[hypatia] \($m)"
-            end
-          ' hypatia-findings.json || true
-
-      - name: Upload hypatia findings
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: hypatia-findings
-          path: hypatia-findings.json
-          retention-days: 90
-
-      - name: Fail on critical findings
-        if: steps.build.outputs.ready == 'true' && steps.scan.outputs.critical != '0' && steps.scan.outputs.critical != ''
-        env:
-          CRIT_COUNT: ${{ steps.scan.outputs.critical }}
-        run: |
-          echo "::error::Hypatia found ${CRIT_COUNT} critical security issue(s) — blocking merge"
-          exit 1
-
-  # ---------------------------------------------------------------------------
-  # Job 3: patch-bridge triage (CVE contextual assessment)
+  # Job 2: patch-bridge triage (CVE contextual assessment)
   # ---------------------------------------------------------------------------
   patch-bridge-triage:
     name: Patch Bridge CVE triage
@@ -252,12 +239,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Cache pinned panic-attack binary
-        id: cache-pa
+      # One cache namespace only. Restoring the legacy binary without Cargo's
+      # install metadata made the subsequent pinned install abort rather than
+      # replace it, leaving patch-bridge permanently red on cache misses.
+      - name: Restore pinned patch-bridge scanner
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-pa
         with:
           path: ~/.cargo/bin/panic-attack
-          key: panic-attack-${{ runner.os }}-b5530834a839734d1d181bfe6edb0d43d4233cf4
+          key: patch-bridge-${{ runner.os }}-${{ env.PANIC_ATTACK_SHA }}
 
       - name: Build pinned panic-attack when uncached
         if: steps.cache-pa.outputs.cache-hit != 'true'
@@ -265,7 +255,7 @@ jobs:
           set -euo pipefail
           cargo install --locked \
             --git https://github.com/hyperpolymath/panic-attack.git \
-            --rev b5530834a839734d1d181bfe6edb0d43d4233cf4
+            --rev "$PANIC_ATTACK_SHA"
 
       - name: Run Patch Bridge triage
         id: triage
@@ -324,26 +314,27 @@ jobs:
           echo "::warning::Patch Bridge found ${UNMIT} unmitigable CVE(s) — review required"
 
   # ---------------------------------------------------------------------------
-  # Job 4: deposit-findings (combines + archives for gitbot-fleet)
+  # Job 3: deposit-findings (one unified report, beside the envelopes)
   # ---------------------------------------------------------------------------
+  # The unified report is for humans and for the fleet's own consumers. The
+  # verdict grid reads the ENVELOPES from `static-analysis-findings`, not this
+  # file: merging two scanners into one array discards each one's "did it run"
+  # fact, which is the single most important thing the grid reports.
   deposit-findings:
     name: Deposit findings for gitbot-fleet
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: [panic-attack-assail, hypatia-scan, patch-bridge-triage]
-    if: always()
+    needs: [panic-attack-assail, patch-bridge-triage]
+    # !cancelled(), not always(): deposit what the scans found even when one
+    # failed, but not after the run was cancelled (a superseding push), when
+    # the artifacts were never uploaded and the download step can only fail.
+    if: ${{ !cancelled() }}
     steps:
-      - name: Download panic-attack findings
+      - name: Download panic-attack & pons envelopes
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
-          name: panic-attack-findings
-          path: findings/
-      - name: Download hypatia findings
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        continue-on-error: true
-        with:
-          name: hypatia-findings
+          name: static-analysis-findings
           path: findings/
       - name: Download bridge report
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -361,16 +352,20 @@ jobs:
         run: |
           mkdir -p findings
           PA_FILE="findings/panic-attack-findings.json"
-          HYP_FILE="findings/hypatia-findings.json"
+          PONS_FILE="findings/pons-findings.json"
 
-          for f in "$PA_FILE" "$HYP_FILE"; do
+          # A missing envelope is recorded, not invented: "did not run" and
+          # "ran clean" must never collapse into the same empty array.
+          for f in "$PA_FILE" "$PONS_FILE"; do
             if [ ! -s "$f" ] || ! jq empty "$f" 2>/dev/null; then
-              echo "[]" > "$f"
+              echo '{"status": "not_run", "tool": "unknown", "ref": null, "reason": "no envelope artifact reached this job", "exit_code": null, "report": null}' > "$f"
             fi
           done
 
-          jq '[.[] | . + {"scanner": "panic-attack"}]' "$PA_FILE" > "$RUNNER_TEMP/pa-tagged.json"
-          jq '[.[] | . + {"scanner": "hypatia"}]'      "$HYP_FILE" > "$RUNNER_TEMP/hyp-tagged.json"
+          jq '[.report.weak_points[]? | select(.suppressed != true) | . + {"scanner": "panic-attack"}]' \
+            "$PA_FILE" > "$RUNNER_TEMP/pa-tagged.json"
+          jq '[.report.findings[]? | . + {"scanner": "pons-asinorum"}]' \
+            "$PONS_FILE" > "$RUNNER_TEMP/pons-tagged.json"
 
           BRIDGE_FILE="findings/bridge-report.json"
           if [ ! -s "$BRIDGE_FILE" ] || ! jq empty "$BRIDGE_FILE" 2>/dev/null; then
@@ -384,31 +379,33 @@ jobs:
             --arg run_id "$RUN_ID" \
             --arg ts     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --slurpfile pa     "$RUNNER_TEMP/pa-tagged.json" \
-            --slurpfile hyp    "$RUNNER_TEMP/hyp-tagged.json" \
+            --slurpfile pons   "$RUNNER_TEMP/pons-tagged.json" \
             --slurpfile bridge "$BRIDGE_FILE" \
+            --slurpfile pa_env "$PA_FILE" \
+            --slurpfile pn_env "$PONS_FILE" \
             '{
-              schema_version: "1.1.0",
+              schema_version: "1.2.0",
               repository: $repo,
               commit_sha: $sha,
               ref: $ref,
               run_id: $run_id,
               timestamp: $ts,
-              findings: ($pa[0] + $hyp[0]),
+              scanners: {
+                panic_attack: {status: $pa_env[0].status, ref: $pa_env[0].ref, reason: $pa_env[0].reason},
+                pons_asinorum: {status: $pn_env[0].status, ref: $pn_env[0].ref, reason: $pn_env[0].reason}
+              },
+              findings: ($pa[0] + $pons[0]),
               patch_bridge: $bridge[0]
             }' > findings/unified-findings.json
 
           TOTAL=$(jq '.findings | length' findings/unified-findings.json)
-          CRITICAL=$(jq '[.findings[] | select(.severity == "critical")] | length' findings/unified-findings.json)
-          HIGH=$(jq '[.findings[] | select(.severity == "high")] | length' findings/unified-findings.json)
-          MEDIUM=$(jq '[.findings[] | select(.severity == "medium" or .severity == "warn")] | length' findings/unified-findings.json)
-          LOW=$(jq '[.findings[] | select(.severity == "low")] | length' findings/unified-findings.json)
+          CRITICAL=$(jq '[.findings[] | select((.severity // "" | ascii_downcase) == "critical")] | length' findings/unified-findings.json)
+          HIGH=$(jq '[.findings[] | select((.severity // "" | ascii_downcase) == "high" or (.severity // "" | ascii_upcase) == "ERROR")] | length' findings/unified-findings.json)
 
           {
             echo "total=$TOTAL"
             echo "critical=$CRITICAL"
             echo "high=$HIGH"
-            echo "medium=$MEDIUM"
-            echo "low=$LOW"
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload unified findings (fleet scanner picks these up)
@@ -424,8 +421,6 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
           CRIT: ${{ steps.combine.outputs.critical }}
           HIGH_C: ${{ steps.combine.outputs.high }}
-          MED: ${{ steps.combine.outputs.medium }}
-          LOW_C: ${{ steps.combine.outputs.low }}
           TOT: ${{ steps.combine.outputs.total }}
         run: |
           {
@@ -438,8 +433,9 @@ jobs:
             echo "| Severity | Count |"
             echo "|----------|-------|"
             echo "| Critical | ${CRIT} |"
-            echo "| High | ${HIGH_C} |"
-            echo "| Medium | ${MED} |"
-            echo "| Low | ${LOW_C} |"
+            echo "| High (incl. pons ERROR) | ${HIGH_C} |"
             echo "| **Total** | ${TOT} |"
+            echo ""
+            echo "Hypatia's findings are produced once, by \`.github/workflows/hypatia-scan.yml\`,"
+            echo "and graded directly by the verdict grid — they are not repeated here."
           } >> "$GITHUB_STEP_SUMMARY"

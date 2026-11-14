@@ -13,8 +13,9 @@ this page only maps it onto this directory.
 |Code or obligation |Verifier |Where it lives
 
 |Rust code
-|*Creusot*
+|*Creusot* with *Pearlite* contracts, and *Verus* (policy §1.2)
 |On the Rust code itself (contracts in the crate), not in this directory.
+Pearlite is Creusot's specification language, not a third verifier.
 
 |Ada code
 |*SPARK*
@@ -34,14 +35,40 @@ Statements about one repository's types, functions or wire formats are
 engineering (Idris2). Statements that would hold for any implementation are
 theory (Agda). Behaviour of first-party Rust or Ada code (pre- and
 postconditions, loop invariants, absence of run-time errors) is proved with
-Creusot or SPARK on that code, not restated in Idris2.
+Creusot/Pearlite and Verus (Rust) or SPARK (Ada) on that code, not restated
+in Idris2. Plan scopes for both Rust verifiers, and record in
+`docs/status/PROOF-STATUS.adoc` any that is unsupported, inapplicable or not
+yet run, with its reason.
 
 Another tool only where it is plainly the right one, recorded beside the
 artefact and in `docs/status/PROOF-STATUS.adoc` (policy §4). `tlaplus/` is
 such an exception: a finite model check is reported as `TESTED`, with its
 bounds. For Rust, *Kani* (unsafe and FFI seams, reported `TESTED` with
 bounds) and *Aeneas* (Rust that implements an Agda-proved theorem) are
-standing exceptions that run alongside Creusot, never instead of it.
+standing exceptions that run alongside the default toolset, never instead
+of it.
+
+== Proof grades
+
+The only estate proof grade is the *Proof Witness Grade* (PWG) of policy §8.
+It applies to theory theorems:
+
+* `PWG-3` means the Agda proof checks under the canonical invocation.
+* `PWG-2i` adds one recheck leg (Rocq or Lean) that counts.
+* `PWG-2ii` means both legs count, which discharges the policy's recheck
+  obligation.
+* `PWG-1` adds a current receipt, per commit, from a pinned headless
+  checker for every witness.
+
+A leg counts only when it is kernel-checked and its statement
+correspondence is `RECONCILED`. Grades are derived from receipts and the
+correspondence records, never asserted. Record them in
+`docs/status/PROOF-STATUS.adoc` beside the §5 status tokens, in a separate
+field.
+
+Always write the `PWG-` prefix. A bare "Grade 2" collides with the CRG,
+TRG, ARG and FRG letter grades. Publish counts as a census with their
+denominator, never as a percentage.
 
 == Third-party code
 

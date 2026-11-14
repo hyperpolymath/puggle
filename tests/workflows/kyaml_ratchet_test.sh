@@ -64,7 +64,7 @@ case "$url" in
     https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64)
         asset=yq
         [[ "$output" = "$RUNNER_TEMP/yq-bin/yq" ]] || exit 92 ;;
-    https://raw.githubusercontent.com/metadatastician/standards/8e48b1caade08a552646adeab66558ac43b4360d/scripts/kyaml-format.sh)
+    https://raw.githubusercontent.com/metadatastician/standards/f0b3cd4c464d33e1584f8528c17bce104555e256/scripts/kyaml-format.sh)
         asset=kyaml-format.sh
         [[ "$output" = "$RUNNER_TEMP/kyaml-format.sh" ]] || exit 92 ;;
     *) echo "unexpected download: $url" >&2; exit 93 ;;

@@ -23,7 +23,7 @@ validates the result, and runs k9-svc checks if available.
 sed -i 's/{{AUTHOR}}/Jane Doe/g' $(grep -rl '{{AUTHOR}}' .)
 sed -i 's/{{AUTHOR_EMAIL}}/jane@example.org/g' $(grep -rl '{{AUTHOR_EMAIL}}' .)
 sed -i 's/{{OWNER}}/my-org/g' $(grep -rl '{{OWNER}}' .)
-sed -i 's/{{PROJECT_NAME}}/my-project/g' $(grep -rl '{{PROJECT_NAME}}' .)
+sed -i 's/{{PROJECT_NAME}}/My Project/g' $(grep -rl '{{PROJECT_NAME}}' .)
 sed -i 's/{{PROJECT}}/MY_PROJECT/g' $(grep -rl '{{PROJECT}}' .)
 sed -i 's/{{project}}/my_project/g' $(grep -rl '{{project}}' .)
 sed -i 's/{{REPO}}/my-project/g' $(grep -rl '{{REPO}}' .)
@@ -49,10 +49,25 @@ sed -i "s/{{CURRENT_DATE}}/$(date +%Y-%m-%d)/g" $(grep -rl '{{CURRENT_DATE}}' .)
 
 ### Project Identity
 
+Three DIFFERENT things are named "the project" and they are three different
+tokens. Conflating them is how a repository ends up with a display name where an
+identifier belongs:
+
+* `{{PROJECT_NAME}}` — what a human reads: spaces, capitals, punctuation.
+* `{{PROJECT}}` / `{{project}}` — what a compiler reads: an identifier, so no
+  spaces and no hyphens. `{{PROJECT}}` is the uppercase form (Idris2 modules, C
+  macros); `{{project}}` is the lowercase form (C symbols, file names, crate
+  and module names).
+* `{{REPO}}` — what a forge reads: the repository slug.
+
+They may look alike today (`My Project` / `MY_PROJECT` / `my_project` /
+`my-project`) and they are still four tokens, because each is filled from a
+different answer in `just repo-init`. A file that needs all four needs all four.
+
 | Placeholder | Description | Example | Files |
 |---|---|---|---|
 | `{{PROJECT_NAME}}` | Human-readable project name | `My Project` | SECURITY.md, CODE_OF_CONDUCT.md, TOPOLOGY.md, docs/status/ROADMAP.adoc (via build/templates/ROADMAP.adoc.in), Justfile, GOVERNANCE.md, MAINTAINERS.md, devcontainer.json |
-| `{{PROJECT_DESCRIPTION}}` | One-line description | `A tool for X` | README.adoc, build/container/Containerfile |
+| `{{PROJECT_DESCRIPTION}}` | One-line description | `A tool for X` | README.adoc, CITATION.cff, the repo deed |
 | `{{PROJECT}}` | Uppercase identifier (for Idris2 modules, C macros) | `MY_PROJECT` | ABI-FFI-README.md, src/interface/abi/*.idr, src/interface/ffi/*.zig |
 | `{{project}}` | Lowercase identifier (for C symbols, filenames) | `my_project` | ABI-FFI-README.md, src/interface/ffi/*.zig |
 | `{{REPO}}` | Repository name (slug) | `my-project` | CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, cliff.toml |

@@ -36,17 +36,21 @@ PARENT_NAME="${PARENT_SLUG##*/}"
 PIN=$(bash "$READ" "$DEED" variant parent-pin || true)
 [[ "$PIN" =~ ^[0-9a-f]{40}$ ]] || PIN=""
 
-# A minted repo is not yet a target for this gate: the mint renders tokens and
-# rewrites files, so most spine files differ from the parent by design, and the
-# (normalise) rules do not fold the mint's answers (ADR-0003). repo-init no
-# longer recommends arming it there. Say so before the findings, rather than
-# leave a reader to "fix" ~100 expected lines by declaring them diverged; the
-# verdict itself is unchanged (a gate that turns itself green is no gate).
+# The template comparison below cannot judge a minted repo: the mint renders
+# tokens and rewrites files, so most spine files differ by design.
 ROLE=$(bash "$READ" "$DEED" variant role 2>/dev/null || true)
+# A minted repo that recorded its answers is checked EXACTLY: the mint is
+# replayed from the pinned template and the child is diffed against that
+# (scripts/check-mint-drift.sh). The approximate comparison below remains for
+# variant templates, and for children minted before (mint-answers) existed.
+if [ "$ROLE" = "minted-repo" ] && bash "$READ" --has "$DEED" mint-answers; then
+  exec bash "$(dirname "$READ")/check-mint-drift.sh" "$PARENT_DIR" "$SELF_DIR"
+fi
 if [ "$ROLE" = "minted-repo" ]; then
-  echo "NOTE: $DEED records :role \"minted-repo\". Rendered files are expected to differ"
-  echo "      from the parent until (normalise) folds the mint's answers; check the"
-  echo "      template pin with scripts/check-template-conformance.sh instead."
+  echo "NOTE: $DEED records :role \"minted-repo\" but no (mint-answers): it was minted"
+  echo "      before answers were recorded, so the mint cannot be replayed and rendered"
+  echo "      files are expected to differ below. Check the template pin with"
+  echo "      scripts/check-template-conformance.sh."
 fi
 
 # section_paths SECTION — the path list :SECTION of the (variant (paths …))
