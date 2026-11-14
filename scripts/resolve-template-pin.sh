@@ -91,9 +91,12 @@ fi
 # Candidate trees, strongest first. A root commit is what "Use this template"
 # wrote; it stays the template's tree even after the child grows commits.
 CANDS=()
+CAND_TIME=()
 if [ -n "$HEAD_SHA" ]; then
     while IFS= read -r root; do
-        [ -n "$root" ] && CANDS+=("$(git -C "$DIR" rev-parse "${root}^{tree}")")
+        [ -n "$root" ] || continue
+        CANDS+=("$(git -C "$DIR" rev-parse "${root}^{tree}")")
+        CAND_TIME+=("$(git -C "$DIR" log -1 --format=%ct "$root")")
     done < <(git -C "$DIR" rev-list --max-parents=0 HEAD)
 fi
 # The work tree as `git add -A` would commit it (ignored paths excluded). Its
@@ -153,23 +156,50 @@ if [ -n "$COMMIT" ]; then
     exit 0
 fi
 
-# Newest first along the default branch, then anywhere in the history.
-REFS=()
-[ -n "$DEFAULT" ] && REFS+=("refs/heads/$DEFAULT")
-n=0
-for t in "${CANDS[@]}"; do
-    n=$((n + 1))
-    for scope in "${REFS[@]}" --all; do
-        # awk reads to the end rather than exiting at the first hit: an early exit
-        # SIGPIPEs git log on a long history, and pipefail made that fatal
-        # (exit 141 against the real rsr-template-repo, 2026-10-20).
-        hit="$(git -C "$TMPL" log --format='%H %T' "$scope" | awk -v t="$t" '!found && $2 == t { print $1; found = 1 }')"
-        if [ -n "$hit" ]; then
-            if [ "$t" = "$wt_tree" ] && [ "$n" -eq "${#CANDS[@]}" ]; then src="work-tree"; else src="root-commit"; fi
-            printf 'branch=%s\ncommit=%s\ntree=%s\nsource=%s\n' "$(branch_of "$hit")" "$hit" "$t" "$src"
+# A tree can belong to more than one commit: an empty commit, a revert, or a
+# merge that changed nothing (29 trees repeat on rsr-template-repo's main,
+# measured 2026-10-27). "Newest with this tree" then named a commit the child
+# may not have come from (Codex review of #251). So:
+#   1. A root commit carries its creation time. "Use this template" copies the
+#      default branch's tip at that moment, so the first-parent tip of the
+#      default branch as of that time is the exact source when its tree
+#      matches. That is a fact about the history, not a guess.
+#      It trusts committer dates: a commit pushed after the child was made,
+#      backdated before it and carrying the same tree, would be named instead
+#      (CodeRabbit review of #277). Its files are the same bytes, so the
+#      replay is unchanged; only the recorded commit differs, and
+#      RSR_TEMPLATE_COMMIT corrects it. git keeps no push time to do better.
+#   2. Otherwise every commit with a matching tree is collected. One is the
+#      answer; more than one is refused, loudly, with RSR_TEMPLATE_COMMIT as
+#      the way to say which. Equal trees are equal content, but provenance
+#      names a COMMIT, and it must not be a coin toss.
+for i in "${!CANDS[@]}"; do
+    t="${CANDS[$i]}"
+    if [ "$t" = "$wt_tree" ] && [ "$i" -eq $(( ${#CANDS[@]} - 1 )) ]; then src="work-tree"; else src="root-commit"; fi
+    if [ "$src" = "root-commit" ] && [ -n "$DEFAULT" ] && [ -n "${CAND_TIME[$i]:-}" ]; then
+        tip="$(git -C "$TMPL" rev-list -1 --first-parent --before="@${CAND_TIME[$i]}" "refs/heads/$DEFAULT" 2>/dev/null || true)"
+        if [ -n "$tip" ] && [ "$(git -C "$TMPL" rev-parse "${tip}^{tree}")" = "$t" ]; then
+            printf 'branch=%s\ncommit=%s\ntree=%s\nsource=%s\n' "$DEFAULT" "$tip" "$t" "$src"
             exit 0
         fi
-    done
+    fi
+    # awk reads to the end: an early exit SIGPIPEs git log on a long history,
+    # and pipefail made that fatal (exit 141 on the real template, 2026-10-20).
+    mapfile -t hits < <(git -C "$TMPL" log --all --format='%H %T' | awk -v t="$t" '$2 == t { print $1 }' | awk '!seen[$0]++')
+    if [ "${#hits[@]}" -eq 1 ]; then
+        printf 'branch=%s\ncommit=%s\ntree=%s\nsource=%s\n' "$(branch_of "${hits[0]}")" "${hits[0]}" "$t" "$src"
+        exit 0
+    fi
+    if [ "${#hits[@]}" -gt 1 ]; then
+        {
+            echo "resolve-template-pin: tree $t belongs to ${#hits[@]} commits of ${SLUG}, so the"
+            echo "    template commit is ambiguous:"
+            printf '      %s\n' "${hits[@]:0:10}"
+            [ "${#hits[@]}" -le 10 ] || echo "      … and $(( ${#hits[@]} - 10 )) more"
+            echo "    Say which with RSR_TEMPLATE_COMMIT=<sha>."
+        } >&2
+        exit 1
+    fi
 done
 
 {

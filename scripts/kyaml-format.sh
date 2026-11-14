@@ -43,6 +43,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 command -v yq >/dev/null 2>&1 || { echo "kyaml-format: yq is not on PATH" >&2; exit 2; }
+yq --version 2>&1 | grep -q "mikefarah" || { echo "kyaml-format: this needs Mike Farah yq (Go, 4.53.3+); the yq on PATH is a different tool" >&2; exit 2; }
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

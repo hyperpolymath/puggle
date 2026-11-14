@@ -2,9 +2,14 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 # PR #244 configuration regressions: the retired runtime policy must not ship,
-# and governance must run for pull requests targeting any branch with a locked
-# checkout of metadatastician/standards at a full 40-hex SHA.
-# PR #257 adds the proof-policy mapping and adopts canon 2.1.3. Since that
+# and governance must run for pull requests targeting any branch, running the
+# standards policy at a full 40-hex SHA: a locked checkout of
+# metadatastician/standards, or a locked call of its reusable governance
+# workflow.
+# PR #257 adds the proof-policy mapping and adopts canon 2.1.3; canon 2.1.4 (an
+# editorial PATCH: criteria and gates hashes unchanged) followed, and canon
+# 2.1.5 (a PATCH: the gate table 0.3.1 and the applicability policy changed,
+# the criteria did not) is adopted here. Since that
 # change is documentation and configuration only, check its published contract
 # here without invoking any proof compiler or making network requests.
 # Usage: bash tests/workflows/governance_policy_test.sh
@@ -48,23 +53,45 @@ assert.ok(Object.hasOwn(governance.on, "workflow_dispatch"),
   "manual governance dispatch must remain available");
 console.log("PASS: unrestricted pull requests coexist with filtered pushes and manual dispatch");
 
-// Governance must pin metadatastician/standards at a full 40-hex SHA and lock
-// every step-level action it invokes in actions.lock.
-const steps = governance.jobs.governance.steps ?? [];
-const standardsCheckout = steps.find(
-  (s) => s.with && /^(metadatastician|hyperpolymath)\/standards$/.test(String(s.with.repository ?? ""))
+// Governance must run the standards policy pinned at a full 40-hex SHA, and
+// actions.lock must record what it runs. Two shapes satisfy that, and each is
+// checked in full:
+//   * inline: a step checks out standards at the SHA and runs its scripts
+//     (the template's own governance.yml);
+//   * caller: the governance job calls standards' reusable governance
+//     workflow at the SHA, so the policy is defined once, in standards (the
+//     form children such as secret-types use).
+// Anything else fails: a missing pin, a tag or branch ref, or a lock record
+// that does not match.
+const job = governance.jobs.governance;
+const lockRecord = lock.workflows[".github/workflows/governance.yml"] ?? [];
+const caller = String(job.uses ?? "").match(
+  /^(metadatastician|hyperpolymath)\/standards\/\.github\/workflows\/governance-reusable\.yml@([a-f0-9]{40})$/
 );
-assert.ok(standardsCheckout, "governance must check out standards policy scripts");
-assert.match(String(standardsCheckout.with.ref ?? ""), /^[a-f0-9]{40}$/,
-  "governance must pin standards at a full 40-hex commit SHA");
-const checkoutUse = String(standardsCheckout.uses ?? "");
-assert.ok(
-  (lock.workflows[".github/workflows/governance.yml"] ?? []).includes(checkoutUse),
-  "governance's lock record must match its checkout action"
-);
-assert.ok(lock.dependencies[checkoutUse]?.commit,
-  "governance's checkout action must have a corresponding locked dependency commit");
-console.log("PASS: governance executes the pinned standards policy with locked actions");
+if (job.uses !== undefined) {
+  assert.ok(caller,
+    "a governance caller must call standards' governance-reusable.yml at a full 40-hex commit SHA");
+  const callerUse = `${caller[1]}/standards@${caller[2]}`;
+  assert.ok(lockRecord.includes(callerUse),
+    "governance's lock record must match the reusable workflow it calls");
+  assert.ok(lock.dependencies[callerUse]?.commit,
+    "governance's reusable workflow must have a corresponding locked dependency commit");
+  console.log("PASS: governance calls the pinned standards policy, and the call is locked");
+} else {
+  const steps = job.steps ?? [];
+  const standardsCheckout = steps.find(
+    (s) => s.with && /^(metadatastician|hyperpolymath)\/standards$/.test(String(s.with.repository ?? ""))
+  );
+  assert.ok(standardsCheckout, "governance must check out standards policy scripts");
+  assert.match(String(standardsCheckout.with.ref ?? ""), /^[a-f0-9]{40}$/,
+    "governance must pin standards at a full 40-hex commit SHA");
+  const checkoutUse = String(standardsCheckout.uses ?? "");
+  assert.ok(lockRecord.includes(checkoutUse),
+    "governance's lock record must match its checkout action");
+  assert.ok(lock.dependencies[checkoutUse]?.commit,
+    "governance's checkout action must have a corresponding locked dependency commit");
+  console.log("PASS: governance executes the pinned standards policy with locked actions");
+}
 
 const root = process.argv[2];
 const read = (path) => readFileSync(resolve(root, path), "utf8");
@@ -135,6 +162,10 @@ for (const [label, arrivalLabel, verifier] of [
 }
 const location = (label) => adocRows.find((row) => row[0] === label)[2];
 assert.match(location("Rust code"), /on the Rust code itself/i);
+// PROOF-POLICY section 1.2: agent-facing summaries name Creusot, Pearlite and Verus.
+// The proof guide may cite the policy section after the tool list (#303).
+assert.match(adocRows.find((row) => row[0] === "Rust code")[1],
+  /^Creusot with Pearlite contracts, and Verus( \(policy §1\.2\))?$/);
 assert.match(location("Ada code"), /on the Ada code itself.*gnatprove/i);
 assert.match(location("APIs, ABIs and engineering properties"), /idris2\/.*ABI proofs are mandatory/);
 assert.match(location("Theory"), /agda\/ is the source of truth; coq\/ and lean4\/ hold the recheck legs/);
@@ -145,12 +176,13 @@ console.log("PASS: proof locations preserve mandatory ABI proofs and both theory
 const obligations = prose(mapping);
 assert.match(obligations, /types, functions or wire formats are engineering \(Idris2\)/);
 assert.match(obligations, /any implementation are theory \(Agda\)/);
-assert.match(obligations, /first-party Rust or Ada code.*Creusot or SPARK on that code, not restated in Idris2/);
+assert.match(obligations, /first-party Rust or Ada code.*Creusot\/Pearlite and Verus \(Rust\) or SPARK \(Ada\) on that code, not restated in Idris2/);
+assert.match(obligations, /Plan scopes for both Rust verifiers/);
 assert.match(obligations, /recorded beside the artefact and in docs\/status\/PROOF-STATUS\.adoc/);
 assert.match(obligations, /tlaplus\/.*finite model check is reported as TESTED, with its bounds/);
 assert.match(obligations, /Kani \(unsafe and FFI seams, reported TESTED with bounds\)/);
 assert.match(obligations, /Aeneas \(Rust that implements an Agda-proved theorem\)/);
-assert.match(obligations, /alongside Creusot, never instead of it/);
+assert.match(obligations, /alongside the default toolset, never instead of it/);
 assert.match(prose(arrival), /Kani for unsafe\/FFI seams and Aeneas.*Agda theorem.*alongside, never instead/);
 console.log("PASS: engineering boundaries and bounded exceptions preserve the primary verifier");
 
@@ -188,14 +220,12 @@ console.log("PASS: new proof instructions require needs, verification, rechecks 
 // Keep the independently specified release tuple together: a version-only
 // bump or retaining the previous gates hash would misidentify the canon.
 // Update this expectation deliberately when adopting the next canon release.
-const deedReader = resolve(root, "scripts/deed-field.sh");
-const repoDeed = execFileSync("bash", [deedReader, "--find", root], { encoding: "utf8" }).trim();
-const field = (key) => execFileSync("bash", [deedReader,
-  repoDeed, "canon", key], { encoding: "utf8" }).trim();
+const field = (key) => execFileSync("bash", [resolve(root, "scripts/deed-field.sh"),
+  resolve(root, "puggle_chora.deed"), "canon", key], { encoding: "utf8" }).trim();
 assert.deepEqual([field("version"), field("criteria-sha256"), field("gates-sha256")], [
   "2.1.5",
   "6a5aa8857bd0d0d58ef48827938ca17c251b6b854dacf59d306388d61694d82a",
   "5c510bba025be718deebb12d0333bfe7db2da43c66578b728b1a334df65290b1",
-], "canon 2.1.5 must retain the criteria identity and adopt the new gates identity");
+], "canon 2.1.5 keeps the criteria identity and adopts the gate table 0.3.1 identity");
 console.log("PASS: the deed adopts the complete canon 2.1.5 identity");
 JS

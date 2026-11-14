@@ -47,9 +47,18 @@ repo_files() {
             | while IFS= read -r -d '' f; do [ -e "$f" ] || [ -L "$f" ] && printf '%s\n' "$f"; done \
             | sort -u
     else
-        git ls-files -- "$@"
+        # NUL-separated: plain output C-quotes a path holding a quote or a
+        # non-ASCII byte, which then read as a root entry named `"notes`.
+        git ls-files -z -- "$@" | tr "\0" "\n"
     fi
 }
+
+# The map is built from lines, so a path holding a newline would read as two
+# bogus entries (Codex review of #277). Refused by name, as the drift tooling does.
+if [ "$MODE" = worktree ]; then NL_SET=(--cached --others --exclude-standard); else NL_SET=(--cached); fi
+NL_PATHS="$(git ls-files -z "${NL_SET[@]}" | while IFS= read -r -d '' f; do
+    case "$f" in *$'\n'*) printf '  %q\n' "$f" ;; esac; done)"
+[ -z "$NL_PATHS" ] || { printf 'ERROR: cannot map a path containing a newline:\n%s\n' "$NL_PATHS" >&2; exit 2; }
 
 [ -f "$ALLOW" ] || { echo "ERROR: $ALLOW not found" >&2; exit 2; }
 mkdir -p "$(dirname "$OUT")"
@@ -58,14 +67,18 @@ mkdir -p "$(dirname "$OUT")"
 mapfile -t ENTRIES < <(repo_files | awk -F/ '{print $1}' | sort -u)
 
 # name -> annotation, harvested from the allowlist's own comments.
+# trim: strip leading and trailing whitespace and nothing else. Not xargs: it
+# parses quotes, so an apostrophe ("an application's") stopped it mid-comment
+# and the map kept only the words before it, and it dropped every quote mark.
+trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
 declare -A NOTE=() OPTIONAL=()
 while IFS= read -r line; do
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     [[ -z "${line// }" ]] && continue
-    raw="${line%%#*}"; raw="$(echo "$raw" | xargs || true)"
+    raw="$(trim "${line%%#*}")"
     [ -z "$raw" ] && continue
     comment="${line#*#}"; [ "$comment" = "$line" ] && comment=""
-    comment="$(echo "$comment" | xargs || true)"
+    comment="$(trim "$comment")"
     key="${raw%/}"
     if [[ "$key" == '?'* ]]; then key="${key#\?}"; OPTIONAL["$key"]=1; fi
     NOTE["$key"]="$comment"

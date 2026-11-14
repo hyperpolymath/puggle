@@ -55,14 +55,24 @@ jobs:
             bash "$SUITE/$gate/check.sh" .
           done
 
+          # These three enforcing gates are composite actions at the pinned
+          # suite (no check.sh), so run the `run:` block of the pinned
+          # action.yml itself rather than a copy. They can fail a build.
+          # manifest-check is NOT here: it delegates to the deed-ecosystem and
+          # k9-ecosystem validate-actions, which are `uses:` steps, not scripts.
+          for gate in required-files-check idris2-abi-check; do
+            echo "=== cicd-suite: $gate ==="
+            script="$(yq -r '.runs.steps[0].run' "$SUITE/$gate/action.yml")"
+            bash --noprofile --norc -e -o pipefail -c "$script"
+          done
+
           echo "=== cicd-suite: spdx-license-check ==="
           test -f LICENSE.txt || test -f LICENSE || test -f LICENSE.md || test -f LICENSE.adoc
 
           echo "=== cicd-suite: idris2-abi & zig-unified-api-adapter ==="
-          if find . -name '*.zig' -not -path './.git/*' | grep -q .; then
-            if git grep -E 'std\.fs|std\.io' -- '*.zig'; then
-              echo "::error::Zig FFI modules contain prohibited side-effects (std.fs/std.io)"
-              exit 1
-            fi
+          # git grep exits 1 when no tracked .zig file exists, so no guard is needed.
+          if git grep -E 'std\.fs|std\.io' -- '*.zig'; then
+            echo "::error::Zig FFI modules contain prohibited side-effects (std.fs/std.io)"
+            exit 1
           fi
           echo "Central Estate CI/CD Audit passed."

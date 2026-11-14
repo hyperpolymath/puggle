@@ -7,6 +7,26 @@
 
 == Overview
 
+[TIP]
+====
+*This module ships no `Containerfile`.* It used to ship one, and that file had
+two `FROM …:latest` lines and a body of TODO comments: it could not build, and
+it failed `container-images-pinned` in every repository minted from this
+template — including the ones that publish no image at all.
+
+A repository that publishes an image adds the file here, pinned:
+
+[source,bash]
+----
+scripts/pin-container-digests.sh --root . --base <digest> --runtime <digest> \
+    build/container/Containerfile
+----
+
+`scripts/check-container-pins.sh` fails the build until every `FROM` in it
+carries an `@sha256:` digest, and `just container-build` says the same thing
+rather than building an image from two moving tags.
+====
+
 Containerisation in this template is organised in *three tiers*, from the most
 portable to the most sovereign. You can use only the tier you need and ignore —
 or delete — the rest.
@@ -16,7 +36,7 @@ or delete — the rest.
 | Tier | What | Why
 
 | *A — OCI standard*
-| `Containerfile`, `.containerignore`
+| `Containerfile` (you add it — see above), `.containerignore`
 | A plain, multi-stage OCI image on https://www.chainguard.dev/[Chainguard]
   Wolfi. Builds with any OCI engine. No dependency on tiers B or C.
 
@@ -198,7 +218,7 @@ accepts the signature.
 
 == Continuous integration
 
-A `container build` workflow ships in `.github/workflows/container-build.yml`.
+A `container build` workflow ships in `.github/workflows/docker-build.yml`.
 It is **off by default** — it costs nothing in a repository created from this
 template until you opt in.
 
@@ -246,9 +266,9 @@ image build/publish jobs you no longer need.
 
 == Base images
 
-* Builder: `cgr.dev/chainguard/wolfi-base:latest`
-* Runtime: `cgr.dev/chainguard/wolfi-base:latest` (or
-  `cgr.dev/chainguard/static:latest` for static binaries)
+* Builder: `cgr.dev/chainguard/wolfi-base@sha256:<digest>` (pinned by digest, no tag)
+* Runtime: `cgr.dev/chainguard/wolfi-base@sha256:<digest>` (or
+  `cgr.dev/chainguard/static@sha256:<digest>` for static binaries)
 
 Chainguard images are minimal, low-CVE, and rebuilt daily (`apk` package
 manager, Alpine-compatible).

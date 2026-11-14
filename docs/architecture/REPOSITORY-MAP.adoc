@@ -125,17 +125,13 @@ predecessors did.
 | optional
 | community health file; GitHub accepts it at root, docs/ or .github/
 
-| `archetypes/`
-| optional
-| template-only variation seam (ADR-0003); `just repo-init` removes it from minted repos
-
 | `benches/`
 | optional
 | Cargo-conventional at package root
 
 | `build/`
 | yes
-| build orchestration: just/ phase modules, container/, docs-seed/, templates/, guix.scm (canon 1.2.1 guix-primary template_ref = build/)
+| build orchestration: just/ phase modules, container/, docs-seed/, templates/, guix.scm (canon 1.2.1 guix-primary template_ref = "build/")
 
 | `build.rs`
 | yes
@@ -167,11 +163,11 @@ predecessors did.
 
 | `mise.lock`
 | yes
-| makes latest concrete: version + per-platform checksum; mise reads it beside mise.toml
+| makes "latest" concrete: version + per-platform checksum; mise reads it beside mise.toml
 
 | `mise.toml`
 | yes
-| the toolchain: every tool at latest (PROVISIONING-STANDARD §4)
+| the toolchain: every tool at "latest" (PROVISIONING-STANDARD §4)
 
 | `puggle_chora.deed`
 | yes
@@ -236,7 +232,6 @@ your own repo - but do not read their emptiness as neglect here.
 | `docs/governance/planning/could/`
 | `docs/governance/planning/must/`
 | `docs/governance/planning/should/`
-| `docs/reports/compliance/`
 | `docs/reports/maintenance/`
 | `docs/reports/performance/`
 | `docs/reports/quality/`

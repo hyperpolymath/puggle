@@ -9,7 +9,7 @@ repo=$(git rev-parse --show-toplevel)
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 bash_bin=$(command -v bash)
-python_bin=$(command -v python3) || { echo 'FAIL: python3 is needed to exercise the shipped fallback' >&2; exit 1; }
+sha_bin=$(command -v sha256sum) || { echo 'FAIL: sha256sum is needed to exercise the shipped fallback' >&2; exit 1; }
 tr_bin=$(command -v tr) || { echo 'FAIL: tr is needed for owner normalization' >&2; exit 1; }
 checks=0
 # Print all arguments as a failure message to stderr and exit the test with status 1.
@@ -23,37 +23,38 @@ equal() {
 
 # Match the outer indentation so the nested if/elif/else remains intact.
 # Stop after the first block: a later Julia block handles .in renames.
-# Strip the recipe's four spaces as Just does, including inside Python.
+# Strip the recipe's four spaces as Just does, including inside the generator block.
 awk '
   /^    if \[ "\$ARCHETYPE" = "julia-library" \]; then$/ { copying = 1 }
   copying { last = ($0 ~ /^    fi$/); sub(/^    /, ""); print; if (last) exit }
 ' "$repo/build/just/repo-init.just" > "$fixture/mint.sh"
 [ -s "$fixture/mint.sh" ] || fail 'package UUID block not found in repo-init'
 
-mkdir -p "$fixture/common" "$fixture/python" "$fixture/bun" "$fixture/bun-only" "$fixture/empty" "$fixture/broken"
+mkdir -p "$fixture/common" "$fixture/shell" "$fixture/bun" "$fixture/bun-only" "$fixture/empty" "$fixture/broken"
 # Every branch canonicalizes the owner, even when no UUID generator exists.
 # Expose only tr as a shared utility so the host cannot supply a generator.
 ln -s "$tr_bin" "$fixture/common/tr"
-ln -s "$python_bin" "$fixture/python/python3"
+ln -s "$sha_bin" "$fixture/shell/sha256sum"
 # An installed uuidgen must never restore the old v5 package mint.
-printf '#!%s\nexit 91\n' "$bash_bin" > "$fixture/python/uuidgen"
-chmod +x "$fixture/python/uuidgen"
+printf '#!%s\nexit 91\n' "$bash_bin" > "$fixture/shell/uuidgen"
+chmod +x "$fixture/shell/uuidgen"
 
 # derive TOOL_DIR OWNER REPO [STANDARDS_SCRIPT [ARCHETYPE [REPO_UUID]]]
 # Execute the shipped UUID rule with the supplied identity and isolated tools.
 # Print PACKAGE_UUID and write NUL-separated substitutions to fixture/sed.args;
 # return the subprocess status, including generator failures.
-# env -i prevents host Bun/Python, user config and exported functions from
+# env -i prevents host Bun or SHA-256 tools, user config and exported functions from
 # accidentally satisfying a branch. The subprocess only needs Bash builtins,
 # tr and whichever generator this test explicitly places on PATH.
 derive() {
   env -i PATH="$1:$fixture/common" OWNER="$2" REPO="$3" \
     STANDARDS_UUID_V8_JS="${4:-}" ARCHETYPE="${5:-julia-library}" \
-    REPO_UUID="${6:-UNASSIGNED}" BUN_LOG="$fixture/bun.args" \
+    REPO_UUID="${6:-UNASSIGNED}" RSR_PACKAGE_UUID="${7:-}" RSR_MINT_REPLAY="${8:-0}" BUN_LOG="$fixture/bun.args" \
     "$bash_bin" -c '
       set -euo pipefail
       LB="{{" RB="}}" PACKAGE_UUID=UNTOUCHED
       SED_ARGS=()
+      cd "$3"
       source "$1" >/dev/null
       printf "%s\n" "$PACKAGE_UUID"
       if [ "${#SED_ARGS[@]}" -gt 0 ]; then
@@ -61,7 +62,7 @@ derive() {
       else
         : > "$2"
       fi
-    ' _ "$fixture/mint.sh" "$fixture/sed.args"
+    ' _ "$fixture/mint.sh" "$fixture/sed.args" "$repo"
 }
 
 # Assert a generator's exact failure status so missing utilities or syntax
@@ -80,7 +81,7 @@ fails_with() {
 # exercise version/variant replacement AND preservation of the remaining bits.
 # Additional short/numeric identity and quoting vectors use sha256sum.
 while read -r owner name expected; do
-  equal "$(derive "$fixture/python" "$owner" "$name")" "$expected" "UUID for $owner/$name"
+  equal "$(derive "$fixture/shell" "$owner" "$name")" "$expected" "UUID for $owner/$name"
 done <<'VECTORS'
 hyperpolymath mintcheck b4839a75-05b9-8c83-a497-2aa751ab7f19
 example-owner MintCheck.jl 9271df15-3174-8475-ac0b-136d649c1f76
@@ -95,14 +96,14 @@ expected=9271df15-3174-8475-ac0b-136d649c1f76
 # GitHub owner spelling must not change package identity. Keep the repository
 # spelling intact: the registered preimage includes the supplied package name.
 for owner in EXAMPLE-OWNER Example-Owner eXaMpLe-OwNeR; do
-  equal "$(derive "$fixture/python" "$owner" MintCheck.jl)" "$expected" "owner casing for $owner"
+  equal "$(derive "$fixture/shell" "$owner" MintCheck.jl)" "$expected" "owner casing for $owner"
 done
-# Owner is passed as argv to Python, never interpolated into Python/shell code.
+# Owner is passed as an argument to uuid-v8.sh, never interpolated into shell code.
 # These malformed logins deliberately probe that boundary without executing it.
-equal "$(derive "$fixture/python" 'owner-$(exit 97)-`exit 98`' MintCheck.jl)" \
+equal "$(derive "$fixture/shell" 'owner-$(exit 97)-`exit 98`' MintCheck.jl)" \
   b665f02d-54bf-88c2-99cd-94a7963df9ea 'owner shell expressions remain literal data'
-equal "$(derive "$fixture/python" example-owner MintCheck.jl)" "$expected" 're-mint is deterministic'
-equal "$(derive "$fixture/python" example-owner MintCheck.jl '' julia-library 00000000-0000-8000-8000-000000000000)" \
+equal "$(derive "$fixture/shell" example-owner MintCheck.jl)" "$expected" 're-mint is deterministic'
+equal "$(derive "$fixture/shell" example-owner MintCheck.jl '' julia-library 00000000-0000-8000-8000-000000000000)" \
   "$expected" 'package identity is independent of the repository UUID'
 
 # Verify the real substitution expression reaches Project.toml, including
@@ -113,7 +114,7 @@ equal "$(sed -n 's/^uuid = "\([^"]*\)"$/\1/p' "$fixture/Project.toml")" "$expect
 if grep -qF '{{PACKAGE_UUID}}' "$fixture/Project.toml"; then fail 'package UUID token survived substitution'; fi
 
 # Bun is preferred only when the standards implementation exists. The stub
-# checks the invocation contract; the real Python implementation above owns
+# checks the invocation contract; the shell implementation above (uuid-v8.sh) owns
 # the digest assertions. A path with spaces must remain a single argument.
 standards="$fixture/standards tools/uuid-v8.js"
 mkdir -p "$(dirname "$standards")"
@@ -126,49 +127,49 @@ printf '%s\n' "$@" > "$BUN_LOG"
 printf '%s\n' '9271df15-3174-8475-ac0b-136d649c1f76'
 BUN
 } > "$fixture/bun/bun"
-printf '#!%s\nexit 92\n' "$bash_bin" > "$fixture/bun/python3"
-chmod +x "$fixture/bun/bun" "$fixture/bun/python3"
-equal "$(derive "$fixture/bun" example-owner MintCheck.jl "$standards")" "$expected" 'Bun takes precedence over Python'
+printf '#!%s\nexit 92\n' "$bash_bin" > "$fixture/bun/sha256sum"
+chmod +x "$fixture/bun/bun" "$fixture/bun/sha256sum"
+equal "$(derive "$fixture/bun" example-owner MintCheck.jl "$standards")" "$expected" 'Bun takes precedence over uuid-v8.sh'
 equal "$(cat "$fixture/bun.args")" "$(printf '%s\n' "$standards" c julia-package-identity github.com/example-owner/MintCheck.jl)" \
   'Bun receives the standards path, profile, domain and preimage'
 equal "$(derive "$fixture/bun" ExAmPlE-OWNER MintCheck.jl "$standards")" "$expected" 'mixed-case owner uses Bun'
 equal "$(cat "$fixture/bun.args")" "$(printf '%s\n' "$standards" c julia-package-identity github.com/example-owner/MintCheck.jl)" \
   'Bun receives the canonical owner and original repository spelling'
 
-# Bun without a usable standards file falls back to Python, including when
+# Bun without a usable standards file falls back to uuid-v8.sh, including when
 # the setting names a missing file or a directory rather than a regular file.
-ln -s "$fixture/bun/bun" "$fixture/python/bun"
+ln -s "$fixture/bun/bun" "$fixture/shell/bun"
 ln -s "$fixture/missing.js" "$fixture/dangling.js"
 for unavailable in '' "$fixture/missing.js" "$fixture/standards tools" "$fixture/dangling.js"; do
   rm -f "$fixture/bun.args"
-  equal "$(derive "$fixture/python" example-owner MintCheck.jl "$unavailable")" "$expected" 'unavailable standards script uses Python'
+  equal "$(derive "$fixture/shell" example-owner MintCheck.jl "$unavailable")" "$expected" 'unavailable standards script uses uuid-v8.sh'
   [ ! -e "$fixture/bun.args" ] || fail 'Bun ran without a standards file'
 done
 
 # A standards file on its own is insufficient when Bun is absent.
-rm "$fixture/python/bun"
-equal "$(derive "$fixture/python" example-owner MintCheck.jl "$standards")" "$expected" 'standards script without Bun uses Python'
+rm "$fixture/shell/bun"
+equal "$(derive "$fixture/shell" example-owner MintCheck.jl "$standards")" "$expected" 'standards script without Bun uses uuid-v8.sh'
 equal "$(derive "$fixture/empty" example-owner MintCheck.jl)" UNASSIGNED 'no generator leaves identity unassigned'
 mapfile -d '' -t sed_args < "$fixture/sed.args"
 equal "$(sed "${sed_args[@]}" <<< 'uuid = "{{PACKAGE_UUID}}"')" 'uuid = "UNASSIGNED"' 'unassigned fallback reaches the package manifest'
 ln -s "$fixture/bun/bun" "$fixture/bun-only/bun"
-equal "$(derive "$fixture/bun-only" example-owner MintCheck.jl "$standards")" "$expected" 'Bun with standards works without Python'
-equal "$(derive "$fixture/bun-only" example-owner MintCheck.jl)" UNASSIGNED 'Bun without standards or Python leaves identity unassigned'
+equal "$(derive "$fixture/bun-only" example-owner MintCheck.jl "$standards")" "$expected" 'Bun with standards works without uuid-v8.sh'
+equal "$(derive "$fixture/bun-only" example-owner MintCheck.jl)" UNASSIGNED 'Bun without standards or a SHA-256 tool leaves identity unassigned'
 equal "$(derive "$fixture/empty" ExAmPlE-OWNER MintCheck.jl "$standards")" UNASSIGNED 'standards without either generator leaves identity unassigned'
 equal "$(derive "$fixture/bun" example-owner MintCheck.jl '' other-archetype)" UNTOUCHED 'other archetypes do not mint a package UUID'
 [ ! -s "$fixture/sed.args" ] || fail 'other archetype gained a package UUID substitution'
 
 # A failing generator must fail loudly rather than emitting a successful mint.
-printf '#!%s\nexit 93\n' "$bash_bin" > "$fixture/broken/python3"
-chmod +x "$fixture/broken/python3"
-fails_with 93 "$fixture/broken" example-owner MintCheck.jl
+printf '#!%s\nexit 93\n' "$bash_bin" > "$fixture/broken/sha256sum"
+chmod +x "$fixture/broken/sha256sum"
+fails_with 2 "$fixture/broken" example-owner MintCheck.jl
 printf '#!%s\nexit 94\n' "$bash_bin" > "$fixture/broken/bun"
 chmod +x "$fixture/broken/bun"
 fails_with 94 "$fixture/broken" example-owner MintCheck.jl "$standards"
-# Even an available working Python must not hide a failing preferred generator.
-ln -s "$fixture/broken/bun" "$fixture/python/bun"
-fails_with 94 "$fixture/python" example-owner MintCheck.jl "$standards"
-rm "$fixture/python/bun"
+# Even an available working SHA-256 tool must not hide a failing preferred generator.
+ln -s "$fixture/broken/bun" "$fixture/shell/bun"
+fails_with 94 "$fixture/shell" example-owner MintCheck.jl "$standards"
+rm "$fixture/shell/bun"
 
 # Inspect only direct job fields: a timeout on another job or nested step
 # must not satisfy a missing timeout. Duplicate timeout keys also fail.
@@ -182,4 +183,20 @@ for job in fmt jet test; do
   ' "$workflow")
   equal "$actual" "$minutes" "$job job timeout"
 done
+# A replay supplies the recorded uuid (mint-answers :package-uuid), so the
+# drift gate gives the same answer on a host with neither bun nor a SHA-256 tool
+# (Codex review of #275). A recorded UNASSIGNED replays as UNASSIGNED even
+# where a generator exists; a malformed value is ignored, not trusted.
+equal "$(derive "$fixture/empty" example-owner MintCheck.jl '' julia-library UNASSIGNED "$expected" 1)" "$expected" \
+  'a recorded package uuid replays without bun or a SHA-256 tool'
+equal "$(derive "$fixture/shell" example-owner MintCheck.jl '' julia-library UNASSIGNED UNASSIGNED 1)" UNASSIGNED \
+  'a recorded UNASSIGNED replays as UNASSIGNED'
+equal "$(derive "$fixture/empty" example-owner MintCheck.jl '' julia-library UNASSIGNED 'not-a-uuid' 1)" UNASSIGNED \
+  'a malformed recorded uuid is ignored'
+# Outside a replay the value is never trusted (Codex review of #275): an
+# ordinary mint derives the uuid even when the environment carries one.
+equal "$(derive "$fixture/shell" example-owner MintCheck.jl '' julia-library UNASSIGNED 00000000-0000-8000-8000-000000000000)" "$expected" \
+  'an ordinary mint ignores RSR_PACKAGE_UUID and derives the uuid'
+equal "$(derive "$fixture/shell" example-owner MintCheck.jl '' julia-library UNASSIGNED UNASSIGNED)" "$expected" \
+  'an ordinary mint ignores a stray UNASSIGNED'
 echo "PASS: $checks Julia library UUID and timeout checks; generator failures rejected"

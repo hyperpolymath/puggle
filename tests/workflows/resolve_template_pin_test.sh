@@ -118,7 +118,44 @@ out=$(bash "$pin" --slug "$SLUG" --url "$L" --dir "$work/lchild") || fail "a lon
 [ "$(field commit "$out")" = "$LC" ] || fail "long history resolved to $(field commit "$out"), want $LC"
 echo 'PASS: a 3000-commit history resolves its newest commit without SIGPIPE'
 
-# 9. repo-init must take provenance from the resolver, not from local HEAD.
+# 9. Repeated trees (Codex review of #251). Commits A1 and A2 (empty) share a
+#    tree; B follows with another. Dates are pinned so creation time decides.
+A="$work/amb"
+mkdir -p "$A"; g -C "$A" init -q -b main
+at() { GIT_COMMITTER_DATE="@$1 +0000" GIT_AUTHOR_DATE="@$1 +0000" g -C "$A" "${@:2}"; }
+printf 'a\n' > "$A/README.adoc"; g -C "$A" add -A; at 1700000100 commit -qm A1
+A1=$(g -C "$A" rev-parse HEAD)
+at 1700000200 commit -q --allow-empty -m A2; A2=$(g -C "$A" rev-parse HEAD)
+printf 'b\n' > "$A/README.adoc"; at 1700000300 commit -qam B
+# amb_child DIR EPOCH — a Use-this-template child with A1's tree, created at EPOCH.
+amb_child() {
+    rm -rf "$1"; mkdir -p "$1"; g -C "$A" archive "$A1" | tar x -C "$1"
+    g -C "$1" init -q -b main; g -C "$1" add -A
+    GIT_COMMITTER_DATE="@$2 +0000" GIT_AUTHOR_DATE="@$2 +0000" g -C "$1" commit -qm "Initial commit"
+}
+#    Created while A2 was the tip: the exact source is A2, by creation time.
+amb_child "$work/amb-c1" 1700000250
+out=$(bash "$pin" --slug "$SLUG" --url "$A" --dir "$work/amb-c1") || fail 'a child created at A2 did not resolve'
+[ "$(field commit "$out")" = "$A2" ] || fail "child created at A2 resolved to $(field commit "$out")"
+#    Created while A1 was the tip: A1, although A2 is newer with the same tree.
+amb_child "$work/amb-c0" 1700000150
+[ "$(field commit "$(bash "$pin" --slug "$SLUG" --url "$A" --dir "$work/amb-c0")")" = "$A1" ] \
+    || fail 'a child created at A1 was not pinned to A1'
+#    Created after B: the tip no longer has the tree, two commits do: refused.
+amb_child "$work/amb-c2" 1700000400
+if bash "$pin" --slug "$SLUG" --url "$A" --dir "$work/amb-c2" >/dev/null 2>"$work/err"; then
+    fail 'an ambiguous tree resolved to one commit silently'
+fi
+grep -q 'ambiguous' "$work/err" && grep -q "$A1" "$work/err" && grep -q "$A2" "$work/err" \
+    || fail 'the ambiguity refusal does not list both commits'
+[ "$(field commit "$(bash "$pin" --slug "$SLUG" --url "$A" --dir "$work/amb-c2" --commit "$A1" 2>/dev/null)")" = "$A1" ] \
+    || fail 'an asserted commit did not settle the ambiguity'
+#    An uncommitted copy has no creation time: refused too.
+rm -rf "$work/amb-wt"; mkdir -p "$work/amb-wt"; g -C "$A" archive "$A1" | tar x -C "$work/amb-wt"; g -C "$work/amb-wt" init -q
+if bash "$pin" --slug "$SLUG" --url "$A" --dir "$work/amb-wt" >/dev/null 2>&1; then fail 'an ambiguous work tree resolved silently'; fi
+echo 'PASS: repeated trees resolve by creation time, or are refused and listed'
+
+# 10. repo-init must take provenance from the resolver, not from local HEAD.
 recipe="$repo/build/just/repo-init.just"
 grep -q 'bash scripts/resolve-template-pin.sh' "$recipe" || fail 'repo-init does not call the resolver'
 if grep -nE 'PARENT_(PIN|BRANCH|TREE)=\$\(git ' "$recipe"; then fail 'repo-init reads the parent pin from local git again'; fi

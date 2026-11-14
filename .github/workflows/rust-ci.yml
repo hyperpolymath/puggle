@@ -54,6 +54,10 @@ jobs:
             bash tests/workflows/archetype_lock_merge_test.sh
           fi
           if [ -f Cargo.toml ]; then
+            # The runner's default toolchain may lack these components.
+            rustup component add rustfmt clippy
+            cargo fmt --all -- --check
+            cargo clippy --locked --all-targets -- -D warnings
             cargo check --all-targets --locked
             cargo test --locked
           fi

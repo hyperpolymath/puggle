@@ -72,7 +72,7 @@ release schedules, contributor access, and community standards.
 - Anyone who submits pull requests, opens issues, or participates in discussions.
 - Does not have direct commit access.
 - Contributions are reviewed by maintainers before merging.
-- All contributors must follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+- All contributors must follow the [Code of Conduct](../CODE_OF_CONDUCT.adoc).
 
 ### Bot
 
@@ -118,7 +118,7 @@ A maintainer may be removed under the following circumstances:
   months. The maintainer will be contacted before removal and offered the option to
   move to emeritus status voluntarily.
 - **Code of Conduct violation**: Behaviour that violates the
-  [Code of Conduct](CODE_OF_CONDUCT.md), as determined through the enforcement
+  [Code of Conduct](../CODE_OF_CONDUCT.adoc), as determined through the enforcement
   process described therein.
 - **BDFL discretion**: The BDFL may remove a maintainer for other reasons (e.g.,
   repeated disregard for project standards, loss of trust). Reasoning will be
@@ -133,7 +133,7 @@ violation.
 ## Code of Conduct
 
 All participants in this project are expected to follow the
-[Code of Conduct](CODE_OF_CONDUCT.md). The Code of Conduct applies to all project
+[Code of Conduct](../CODE_OF_CONDUCT.adoc). The Code of Conduct applies to all project
 spaces, including issues, pull requests, discussions, and any forum where the project
 is represented.
 
