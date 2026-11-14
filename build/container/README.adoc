@@ -266,9 +266,9 @@ image build/publish jobs you no longer need.
 
 == Base images
 
-* Builder: `cgr.dev/chainguard/wolfi-base:latest`
-* Runtime: `cgr.dev/chainguard/wolfi-base:latest` (or
-  `cgr.dev/chainguard/static:latest` for static binaries)
+* Builder: `cgr.dev/chainguard/wolfi-base@sha256:<digest>` (pinned by digest, no tag)
+* Runtime: `cgr.dev/chainguard/wolfi-base@sha256:<digest>` (or
+  `cgr.dev/chainguard/static@sha256:<digest>` for static binaries)
 
 Chainguard images are minimal, low-CVE, and rebuilt daily (`apk` package
 manager, Alpine-compatible).
