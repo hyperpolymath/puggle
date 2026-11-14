@@ -86,8 +86,7 @@ tests/
 ?Project.toml              # julia-library archetype: Pkg reads the package manifest from the package root only
 ?test/                     # julia-library archetype: Pkg.test runs test/runtests.jl, a fixed path (the spine keeps tests/)
 
-# Puggle Rust package and its Capn Proto handoff (Cargo reads these at package root).
-Cargo.toml                 # package manifest; paths target src/rust/
+# Puggle Rust package and its Capn Proto handoff crate (Cargo reads Cargo.toml at package root).
+Cargo.toml                 # package manifest and workspace root; paths target src/rust/
 Cargo.lock                 # committed dependency resolution for reproducible --locked builds
-build.rs                   # Cargo build script invokes capnpc for the handoff schema
-schemas/                   # Capn Proto schema shared by the Rust encoder and ECHIDNA boundary
+crates/                    # workspace member puggle-handoff: Capn Proto schema, build.rs and the generated bindings (the only crate that allows unsafe)
