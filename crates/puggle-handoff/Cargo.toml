@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MPL-2.0
+[package]
+name = "puggle-handoff"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Generated Cap'n Proto bindings for the one-way Puggle to ECHIDNA handoff"
+license = "MPL-2.0"
+repository = "https://github.com/hyperpolymath/puggle"
+build = "build.rs"
+publish = false
+
+[lib]
+name = "puggle_handoff"
+path = "src/lib.rs"
+
+[dependencies]
+capnp = "0.24"
+
+[build-dependencies]
+capnpc = "0.24"
+
+# This crate holds generated code only. The generated Cap'n Proto code uses
+# unsafe, so unsafe is allowed here and nowhere else: the puggle crate keeps
+# `unsafe_code = "forbid"`.
+[lints.rust]
+unsafe_code = "allow"
