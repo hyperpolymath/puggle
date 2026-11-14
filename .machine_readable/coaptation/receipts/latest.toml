@@ -5,9 +5,9 @@
 
 [receipt]
 schema = "hyperpolymath.coaptation/1"
-repo = "rsr-template-repo"
-band = "amber"
-proposed-action = "advisory — soft drift within bands (posture/intend). Open an advisory issue; no re-anchor."
+repo = "puggle"
+band = "green"
+proposed-action = "none — the descriptile self-model coapts with the contractile set-point within tolerance."
 
 [coverage]
 clauses-total = 54
@@ -26,8 +26,8 @@ gate = "pass"
 
 [reading.adjust]
 grade = "posture (advisory; accessibility / inclusive design)"
-satisfied = "0/1"
-posture-ok = false
+satisfied = "1/1"
+posture-ok = true
 
 [reading.intend]
 grade = "tropical (min-plus distance-to-north-star; wishes excluded)"
@@ -80,7 +80,7 @@ trust.no-dockerfile = "probe-deferred"
 trust.site-security-headers = "probe-deferred"
 trust.site-well-known = "probe-deferred"
 trust.site-resource-records = "probe-deferred"
-adjust.placeholder-drift = "refuted"
+adjust.placeholder-drift = "witnessed"
 adjust.template-version-drift = "unmeasured"
 adjust.readme-completeness = "unmeasured"
 adjust.example-accuracy = "unmeasured"

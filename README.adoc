@@ -70,7 +70,7 @@ The generation path is `Neural[Symbolic]`:
 |`src/abi/PuggleABI.idr`
 |total Idris2 quorum, drift, and AST/receipt hash-binding contract
 
-|`schemas/puggle_handoff.capnp`
+|`crates/puggle-handoff/schemas/puggle_handoff.capnp`
 |`FormalSignature` and `ConsensusReceipt` wire schema
 
 |`.machine_readable/puggle-integration.toml`

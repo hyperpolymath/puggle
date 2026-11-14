@@ -56,7 +56,7 @@ public export
 driftThresholdMillionths : Nat
 driftThresholdMillionths = 50000
 
-||| Runtime receipt mirrored by schemas/puggle_handoff.capnp. Distances are
+||| Runtime receipt mirrored by crates/puggle-handoff/schemas/puggle_handoff.capnp. Distances are
 ||| integers here so the strict threshold is decidable without floating point.
 public export
 record ConsensusReceipt where
