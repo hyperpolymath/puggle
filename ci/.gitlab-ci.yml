@@ -43,7 +43,7 @@ cargo-deny:
   image: rust:latest
   script:
     - cargo install cargo-deny
-    - cargo deny --manifest-path Cargo.toml check --config .machine_readable/compliance/rust/deny.toml
+    - cargo deny --manifest-path Cargo.toml --config .machine_readable/compliance/rust/deny.toml check
   rules:
     - exists:
         - Cargo.toml
