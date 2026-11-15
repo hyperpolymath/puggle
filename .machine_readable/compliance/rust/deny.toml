@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MPL-2.0
 # cargo-deny configuration for RSR-compliant repositories
-# Run: cargo deny check
+# Run: cargo deny --all-features --config <this file> check
 # Docs: https://embarkstudios.github.io/cargo-deny/
+# Format: cargo-deny config version 2 (tested with cargo-deny 0.20.2).
 
 [graph]
 targets = []
@@ -9,19 +10,21 @@ all-features = true
 
 # --- Advisory database ---------------------------------------------------
 [advisories]
+version = 2
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-# Fail on any known vulnerability
-vulnerability = "deny"
-unmaintained = "warn"
+# Version 2 always fails on known vulnerabilities; there is no key for it.
+# Unmaintained crates block only when a workspace member depends on them
+# directly. Transitive ones are shown but do not block.
+unmaintained = "workspace"
 yanked = "warn"
-notice = "warn"
 
 # --- License policy -------------------------------------------------------
 [licenses]
-unlicensed = "deny"
+version = 2
 confidence-threshold = 0.8
 
+# Anything not listed here is denied, including AGPL and unlicensed crates.
 allow = [
     "MPL-2.0",
     "MIT",
@@ -33,13 +36,6 @@ allow = [
     "Unicode-3.0",
     "Unicode-DFS-2016",
 ]
-
-deny = [
-    "AGPL-3.0-only",
-    "AGPL-3.0-or-later",
-]
-
-copyleft = "warn"
 
 [[licenses.exceptions]]
 allow = ["OpenSSL"]

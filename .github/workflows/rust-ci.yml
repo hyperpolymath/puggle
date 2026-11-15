@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MPL-2.0
 # Rust CI — compiles standalone scripts/*.rs utilities with -D warnings and
 # runs cargo check/test/clippy when a Cargo.toml is present.
+# A second job runs cargo-deny against .machine_readable/compliance/rust/deny.toml.
 name: Rust CI
 
 on:
@@ -61,3 +62,27 @@ jobs:
             cargo check --all-targets --locked
             cargo test --locked
           fi
+
+  cargo-deny:
+    name: cargo-deny (advisories, bans, licences, sources)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run cargo-deny against the RSR policy
+        run: |
+          set -euo pipefail
+          if [ ! -f Cargo.toml ]; then
+            echo "No Cargo.toml: nothing for cargo-deny to check."
+            exit 0
+          fi
+          cargo install --locked cargo-deny@0.20.2
+          cargo deny --version
+          cargo deny --all-features \
+            --config .machine_readable/compliance/rust/deny.toml check
